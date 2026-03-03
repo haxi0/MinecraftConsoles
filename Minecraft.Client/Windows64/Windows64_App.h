@@ -1,9 +1,7 @@
 #pragma once
-#include "4JLibs\inc\4J_Render.h"
 
 class CConsoleMinecraftApp : public CMinecraftApp
 {
-	ImageFileBuffer m_ThumbnailBuffer;
 public:
 	CConsoleMinecraftApp();
 
