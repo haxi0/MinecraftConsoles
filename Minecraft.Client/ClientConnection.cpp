@@ -54,6 +54,7 @@
 #include "PS3/Network/SonyVoiceChat.h"
 #endif
 #include "DLCTexturePack.h"
+#include "VoiceChatManager.h"
 
 #ifdef _WINDOWS64
 #include "Xbox\Network\NetworkPlayerXbox.h"
@@ -4068,4 +4069,39 @@ ClientConnection::DeferredEntityLinkPacket::DeferredEntityLinkPacket(shared_ptr<
 {
 	m_recievedTick = GetTickCount();
 	m_packet = packet;
+}
+
+void ClientConnection::handleVoiceChat(VoiceChatPacket *packet)
+{
+	if (done) return;
+	if (packet == nullptr || packet->dataLength <= 0) return;
+	if (minecraft == nullptr || minecraft->level == nullptr) return;
+
+	// Don't play back our own voice
+	for (int i = 0; i < XUSER_MAX_COUNT; i++)
+	{
+		if (minecraft->localplayers[i] != nullptr && minecraft->localplayers[i]->entityId == packet->senderPlayerId)
+		{
+			return;
+		}
+	}
+
+	// Mark the sender as speaking in VoiceChatManager (centralized tracking)
+	VoiceChatManager::getInstance().markSpeaking(packet->senderPlayerId);
+
+	// Find the sender entity position for 3D audio
+	shared_ptr<Entity> senderEntity = minecraft->level->getEntity(packet->senderPlayerId);
+	double sx = 0, sy = 0, sz = 0;
+	if (senderEntity != nullptr)
+	{
+		sx = senderEntity->x;
+		sy = senderEntity->y;
+		sz = senderEntity->z;
+	}
+
+	// Route audio to VoiceChatManager for 3D playback
+	VoiceChatManager::getInstance().receiveVoiceData(
+		packet->senderPlayerId, sx, sy, sz,
+		(const unsigned char *)packet->audioData.data,
+		packet->dataLength);
 }

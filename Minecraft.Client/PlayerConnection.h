@@ -107,6 +107,7 @@ public:
 	virtual void handleServerSettingsChanged(shared_ptr<ServerSettingsChangedPacket> packet);
 	virtual void handleKickPlayer(shared_ptr<KickPlayerPacket> packet);
 	virtual void handleGameCommand(shared_ptr<GameCommandPacket> packet);
+	virtual void handleVoiceChat(VoiceChatPacket *packet);
 
 	INetworkPlayer *getNetworkPlayer();
 	bool isLocal();

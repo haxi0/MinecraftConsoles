@@ -34,6 +34,7 @@
 // 4J Added
 #include "..\Minecraft.World\net.minecraft.world.item.crafting.h"
 #include "Options.h"
+#include "..\Minecraft.World\VoiceChatPacket.h"
 
 Random PlayerConnection::random;
 
@@ -1800,4 +1801,18 @@ bool PlayerConnection::isGuest()
 		}
 		return isGuest;
 	}
+}
+
+void PlayerConnection::handleVoiceChat(VoiceChatPacket *packet)
+{
+	if (done) return;
+	if (packet == nullptr || packet->dataLength <= 0) return;
+
+	// Stamp the sender's entity ID so clients know who is speaking
+	packet->senderPlayerId = player->entityId;
+
+	// Broadcast to all connected players (including the sender's client, which will filter itself)
+	auto sharedPacket = std::make_shared<VoiceChatPacket>(
+		packet->senderPlayerId, packet->audioData, packet->dataLength);
+	server->getPlayers()->broadcastAll(sharedPacket);
 }

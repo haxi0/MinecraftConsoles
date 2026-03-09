@@ -768,6 +768,7 @@ set(MINECRAFT_WORLD_SOURCES
   "VineTile.cpp"
   "VinesFeature.cpp"
   "VoronoiZoom.cpp"
+  "VoiceChatPacket.cpp"
   "WallTile.cpp"
   "WaterAnimal.cpp"
   "WaterColor.cpp"

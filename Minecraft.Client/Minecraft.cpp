@@ -72,6 +72,7 @@
 #include "Common\UI\IUIScene_CreativeMenu.h"
 #include "Common\UI\UIFontData.h"
 #include "DLCTexturePack.h"
+#include "VoiceChatManager.h"
 
 #ifdef __ORBIS__
 #include "Orbis\Network\PsPlusUpsellWrapper_Orbis.h"
@@ -612,6 +613,7 @@ void Minecraft::destroy()
 	//    } catch (Throwable e) {
 	//    }
 
+	VoiceChatManager::getInstance().shutdown();
 	soundEngine->destroy();
 	//} finally {
 	Display::destroy();
@@ -1939,6 +1941,13 @@ void Minecraft::run_middle()
 			soundEngine->tick((shared_ptr<Mob> *)localplayers, timer->a);
 			PIXEndNamedEvent();
 
+			// Voice chat tick
+			{
+				VoiceChatManager &vcm = VoiceChatManager::getInstance();
+				if (!vcm.isInitialized()) vcm.init();
+				vcm.tick(this);
+			}
+
 			PIXBeginNamedEvent(0,"Light update");
 
 			glEnable(GL_TEXTURE_2D);
@@ -2295,6 +2304,23 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 
 	//4J-PB - only tick this player's stats
 	stats[iPad]->tick(iPad);
+
+	// Voice chat: lazy-init and tick
+	VoiceChatManager &vcm = VoiceChatManager::getInstance();
+	if (!vcm.isInitialized())
+	{
+		vcm.init();
+	}
+
+	// Push-To-Talk: Only capture if 'V' key or DPAD_UP is held
+	bool pttPressed = false;
+#ifdef _WINDOWS64
+	if (g_KBMInput.IsKeyDown('V')) pttPressed = true;
+#endif
+	if (InputManager.ButtonDown(iPad, MINECRAFT_ACTION_DPAD_UP)) pttPressed = true;
+	
+	vcm.setPushToTalk(pttPressed);
+	vcm.tick(this);
 
 	// Tick the opacity timer (to display the interface at default opacity for a certain time if the user has been navigating it)
 	app.TickOpacityTimer(iPad);

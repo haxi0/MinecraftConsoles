@@ -124,6 +124,7 @@ public:
 	virtual void handlePlayerAbilities(shared_ptr<PlayerAbilitiesPacket> playerAbilitiesPacket);
 	virtual void handleSoundEvent(shared_ptr<LevelSoundPacket> packet);
 	virtual void handleCustomPayload(shared_ptr<CustomPayloadPacket> customPayloadPacket);
+	virtual void handleVoiceChat(VoiceChatPacket *packet);
 	virtual Connection *getConnection();
 
 	// 4J Added

@@ -84,6 +84,8 @@ void Player::_init()
 
 	jumpTriggerTime = 0;
 	takeXpDelay = 0;
+	isSpeaking = false;
+	speakingTicks = 0;
 	experienceLevel = totalExperience = 0;
 	experienceProgress = 0.0f;
 
@@ -326,6 +328,16 @@ void Player::tick()
 	if (isOnFire() && (abilities.invulnerable || hasInvulnerablePrivilege() ) )
 	{
 		clearFire();
+	}
+
+	// Voice chat speaking indicator timeout
+	if (speakingTicks > 0)
+	{
+		speakingTicks--;
+		if (speakingTicks <= 0)
+		{
+			isSpeaking = false;
+		}
 	}
 
 	xCloakO = xCloak;

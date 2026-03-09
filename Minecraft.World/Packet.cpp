@@ -145,6 +145,7 @@ void Packet::staticCtor()
 	map(209, true, false, true, false, typeid(SetPlayerTeamPacket), SetPlayerTeamPacket::create);
 
 	map(250, true, true, true, false, typeid(CustomPayloadPacket), CustomPayloadPacket::create);
+	map(251, true, true, true, false, typeid(VoiceChatPacket), VoiceChatPacket::create);
 	// 4J Stu - These added 1.3.2, but don't think we need them
 	//map(252, true, true, SharedKeyPacket.class);
 	//map(253, true, false, ServerAuthDataPacket.class);

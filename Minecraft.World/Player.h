@@ -78,6 +78,10 @@ public:
 	wstring name;
 	int takeXpDelay;
 
+	// Voice chat speaking indicator
+	bool isSpeaking;
+	int speakingTicks;
+
 	// 4J-PB - track custom skin
 	wstring customTextureUrl;
 	wstring customTextureUrl2;

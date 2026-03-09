@@ -111,6 +111,7 @@ class KickPlayerPacket;
 class AdditionalModelPartsPacket;
 class XZPacket;
 class GameCommandPacket;
+class VoiceChatPacket;
 
 class PacketListener
 {
@@ -227,4 +228,5 @@ public:
 	virtual void handleKickPlayer(shared_ptr<KickPlayerPacket> packet);
 	virtual void handleXZ(shared_ptr<XZPacket> packet);
 	virtual void handleGameCommand(shared_ptr<GameCommandPacket> packet);
+	virtual void handleVoiceChat(VoiceChatPacket *packet);
 };

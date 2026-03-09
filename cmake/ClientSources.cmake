@@ -471,6 +471,7 @@ set(MINECRAFT_CLIENT_SOURCES
   "VillagerModel.cpp"
   "VillagerRenderer.cpp"
   "VillagerZombieModel.cpp"
+  "VoiceChatManager.cpp"
   "WaterDropParticle.cpp"
   "Windows64/Iggy/gdraw/gdraw_d3d11.cpp"
   "Windows64/KeyboardMouseInput.cpp"

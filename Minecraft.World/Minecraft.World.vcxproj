@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="ContentPackage_NO_TU|ARM64EC">
@@ -2942,6 +2942,7 @@
     <ClInclude Include="SandFeature.h" />
     <ClInclude Include="ServerSettingsChangedPacket.h" />
     <ClInclude Include="ChatPacket.h" />
+    <ClInclude Include="VoiceChatPacket.h" />
     <ClInclude Include="ChestTile.h" />
     <ClInclude Include="ChestTileEntity.h" />
     <ClInclude Include="Chicken.h" />
@@ -3593,6 +3594,7 @@
     <ClCompile Include="CaveFeature.cpp" />
     <ClCompile Include="CaveSpider.cpp" />
     <ClCompile Include="ChatPacket.cpp" />
+    <ClCompile Include="VoiceChatPacket.cpp" />
     <ClCompile Include="ChestTile.cpp" />
     <ClCompile Include="ChestTileEntity.cpp" />
     <ClCompile Include="Chicken.cpp" />

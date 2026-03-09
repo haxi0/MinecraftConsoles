@@ -108,4 +108,5 @@
 #include "KickPlayerPacket.h"
 #include "XZPacket.h"
 #include "GameCommandPacket.h"
+#include "VoiceChatPacket.h"
 

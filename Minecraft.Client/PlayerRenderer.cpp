@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "PlayerRenderer.h"
+#include "VoiceChatManager.h"
 #include "SkullTileRenderer.h"
 #include "HumanoidMobRenderer.h"
 #include "HumanoidModel.h"
@@ -470,10 +471,46 @@ void PlayerRenderer::additionalRendering(shared_ptr<LivingEntity> _mob, float a)
 	}
 }
 
-void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, double y, double z, wstring msg, float scale, double dist)
+void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, double y, double z, const wstring &msg, float scale, double dist)
 {
+	// Voice chat speaking indicator
+	if (player != nullptr && VoiceChatManager::getInstance().isEntitySpeaking(player->entityId))
+	{
+		glPushMatrix();
+		// Position above the head (slightly higher than the name tag)
+		glTranslatef(static_cast<float>(x), static_cast<float>(y) + player->bbHeight + 0.75f, static_cast<float>(z));
+		
+		// Billboard logic (face the camera)
+		glRotatef(-entityRenderDispatcher->playerRotY, 0, 1, 0);
+		glRotatef(entityRenderDispatcher->playerRotX, 1, 0, 0);
+		
+		// Scale the icon
+		float sIcon = 0.02f;
+		glScalef(-sIcon, -sIcon, sIcon);
+		
+		glDisable(GL_LIGHTING);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glColor4f(1, 1, 1, 1);
+		
+		ResourceLocation speakerLoc(TN_GUI_SPEAKER);
+		bindTexture(&speakerLoc);
+		
+		Tesselator* t = Tesselator::getInstance();
+		t->begin();
+		// 16x16 icon coordinates
+		t->vertexUV(-8, -8, 0, 0, 0);
+		t->vertexUV(-8,  8, 0, 0, 1);
+		t->vertexUV( 8,  8, 0, 1, 1);
+		t->vertexUV( 8, -8, 0, 1, 0);
+		t->end();
+		
+		glPopMatrix();
+	}
+
 #if 0
     if (dist < 10 * 10)
+
 	{
         Scoreboard *scoreboard = player->getScoreboard();
         Objective *objective = scoreboard->getDisplayObjective(Scoreboard::DISPLAY_SLOT_BELOW_NAME);
