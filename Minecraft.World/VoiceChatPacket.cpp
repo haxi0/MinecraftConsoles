@@ -4,12 +4,12 @@
 #include "VoiceChatPacket.h"
 
 VoiceChatPacket::VoiceChatPacket()
-	: senderPlayerId(-1), dataLength(0), audioData()
+	: senderPlayerId(-1), sequence(0), dataLength(0), audioData()
 {
 }
 
-VoiceChatPacket::VoiceChatPacket(int senderPlayerId, byteArray audioData, short dataLength)
-	: senderPlayerId(senderPlayerId), audioData(audioData), dataLength(dataLength)
+VoiceChatPacket::VoiceChatPacket(int senderPlayerId, unsigned short sequence, byteArray audioData, short dataLength)
+	: senderPlayerId(senderPlayerId), sequence(sequence), audioData(audioData), dataLength(dataLength)
 {
 }
 
@@ -20,6 +20,7 @@ VoiceChatPacket::~VoiceChatPacket()
 void VoiceChatPacket::read(DataInputStream *dis)
 {
 	senderPlayerId = dis->readInt();
+	sequence = static_cast<unsigned short>(dis->readShort());
 	dataLength = dis->readShort();
 	if (dataLength > 0 && dataLength <= 8192)
 	{
@@ -36,6 +37,7 @@ void VoiceChatPacket::read(DataInputStream *dis)
 void VoiceChatPacket::write(DataOutputStream *dos)
 {
 	dos->writeInt(senderPlayerId);
+	dos->writeShort(static_cast<short>(sequence));
 	dos->writeShort(dataLength);
 	if (dataLength > 0)
 	{
@@ -50,5 +52,5 @@ void VoiceChatPacket::handle(PacketListener *listener)
 
 int VoiceChatPacket::getEstimatedSize()
 {
-	return sizeof(int) + sizeof(short) + dataLength;
+	return sizeof(int) + sizeof(short) + sizeof(short) + dataLength;
 }

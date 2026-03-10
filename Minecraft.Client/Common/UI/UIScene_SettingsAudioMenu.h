@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UIScene.h"
+#include "UIControl_Button.h"
 
 class UIScene_SettingsAudioMenu : public UIScene
 {
@@ -8,10 +9,13 @@ private:
 	enum EControls
 	{
 		eControl_Music,
-		eControl_Sound
+		eControl_Sound,
+		eControl_VoiceChat
 	};
 
 	UIControl_Slider m_sliderMusic, m_sliderSound; // Sliders
+	UIControl_Button m_buttonVoiceChat;
+	bool m_hasVoiceChatButton;
 	UI_BEGIN_MAP_ELEMENTS_AND_NAMES(UIScene)
 		UI_MAP_ELEMENT( m_sliderMusic, "Music")
 		UI_MAP_ELEMENT( m_sliderSound, "Sound")
@@ -33,6 +37,7 @@ protected:
 public:
 	// INPUT
 	virtual void handleInput(int iPad, int key, bool repeat, bool pressed, bool released, bool &handled);
+	virtual void handlePress(F64 controlId, F64 childId);
 
 	virtual void handleSliderMove(F64 sliderId, F64 currentValue);
 };

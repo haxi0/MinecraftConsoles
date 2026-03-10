@@ -1393,6 +1393,12 @@ void ClientConnection::send(shared_ptr<Packet> packet)
 	connection->send(packet);
 }
 
+void ClientConnection::queueSend(shared_ptr<Packet> packet)
+{
+	if (done) return;
+	connection->queueSend(packet);
+}
+
 void ClientConnection::handleTakeItemEntity(shared_ptr<TakeItemEntityPacket> packet)
 {
 	if (!isPrimaryConnection()) return;
@@ -4101,7 +4107,7 @@ void ClientConnection::handleVoiceChat(VoiceChatPacket *packet)
 
 	// Route audio to VoiceChatManager for 3D playback
 	VoiceChatManager::getInstance().receiveVoiceData(
-		packet->senderPlayerId, sx, sy, sz,
+		packet->senderPlayerId, packet->sequence, sx, sy, sz,
 		(const unsigned char *)packet->audioData.data,
 		packet->dataLength);
 }

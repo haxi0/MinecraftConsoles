@@ -1813,6 +1813,6 @@ void PlayerConnection::handleVoiceChat(VoiceChatPacket *packet)
 
 	// Broadcast to all connected players (including the sender's client, which will filter itself)
 	auto sharedPacket = std::make_shared<VoiceChatPacket>(
-		packet->senderPlayerId, packet->audioData, packet->dataLength);
+		packet->senderPlayerId, packet->sequence, packet->audioData, packet->dataLength);
 	server->getPlayers()->broadcastAll(sharedPacket);
 }

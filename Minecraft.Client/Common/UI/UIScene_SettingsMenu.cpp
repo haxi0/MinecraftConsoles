@@ -12,10 +12,10 @@ UIScene_SettingsMenu::UIScene_SettingsMenu(int iPad, void *initData, UILayer *pa
 
 	m_buttons[BUTTON_ALL_OPTIONS].init(IDS_OPTIONS,BUTTON_ALL_OPTIONS);
 	m_buttons[BUTTON_ALL_AUDIO].init(IDS_AUDIO,BUTTON_ALL_AUDIO);
+	m_buttons[BUTTON_ALL_VOICE_CHAT].init(UIString(L"Voice Chat"),BUTTON_ALL_VOICE_CHAT);
 	m_buttons[BUTTON_ALL_CONTROL].init(IDS_CONTROL,BUTTON_ALL_CONTROL);
 	m_buttons[BUTTON_ALL_GRAPHICS].init(IDS_GRAPHICS,BUTTON_ALL_GRAPHICS);
 	m_buttons[BUTTON_ALL_UI].init(IDS_USER_INTERFACE,BUTTON_ALL_UI);
-	m_buttons[BUTTON_ALL_RESETTODEFAULTS].init(IDS_RESET_TO_DEFAULTS,BUTTON_ALL_RESETTODEFAULTS);
 
 	if(ProfileManager.GetPrimaryPad()!=m_iPad)
 	{
@@ -63,7 +63,7 @@ void UIScene_SettingsMenu::handleReload()
 
 void UIScene_SettingsMenu::updateTooltips()
 {
-	ui.SetTooltips( m_iPad, IDS_TOOLTIPS_SELECT,IDS_TOOLTIPS_BACK);
+	ui.SetTooltips( m_iPad, IDS_TOOLTIPS_SELECT, IDS_TOOLTIPS_BACK, -1, IDS_RESET_TO_DEFAULTS);
 }
 
 void UIScene_SettingsMenu::updateComponents()
@@ -107,6 +107,15 @@ void UIScene_SettingsMenu::handleInput(int iPad, int key, bool repeat, bool pres
 #endif
 		sendInputToMovie(key, repeat, pressed, released);
 		break;
+	case ACTION_MENU_Y:
+		if (pressed)
+		{
+			UINT uiIDA[2];
+			uiIDA[0] = IDS_CONFIRM_CANCEL;
+			uiIDA[1] = IDS_CONFIRM_OK;
+			ui.RequestAlertMessage(IDS_DEFAULTS_TITLE, IDS_DEFAULTS_TEXT, uiIDA, 2, m_iPad, &UIScene_SettingsMenu::ResetDefaultsDialogReturned, this);
+		}
+		break;
 	case ACTION_MENU_UP:
 	case ACTION_MENU_DOWN:
 		sendInputToMovie(key, repeat, pressed, released);
@@ -127,6 +136,12 @@ void UIScene_SettingsMenu::handlePress(F64 controlId, F64 childId)
 	case BUTTON_ALL_AUDIO:
 		ui.NavigateToScene(m_iPad, eUIScene_SettingsAudioMenu);
 		break;
+	case BUTTON_ALL_VOICE_CHAT:
+		{
+			static int s_voiceChatMenuInitData = 2;
+			ui.NavigateToScene(m_iPad, eUIScene_SettingsGraphicsMenu, &s_voiceChatMenuInitData);
+		}
+		break;
 	case BUTTON_ALL_CONTROL:
 		ui.NavigateToScene(m_iPad, eUIScene_SettingsControlMenu);
 		break;
@@ -135,16 +150,6 @@ void UIScene_SettingsMenu::handlePress(F64 controlId, F64 childId)
 		break;
 	case BUTTON_ALL_UI:
 		ui.NavigateToScene(m_iPad, eUIScene_SettingsUIMenu);
-		break;
-	case BUTTON_ALL_RESETTODEFAULTS:
-		{
-			// check they really want to do this
-			UINT uiIDA[2];
-			uiIDA[0]=IDS_CONFIRM_CANCEL;
-			uiIDA[1]=IDS_CONFIRM_OK;
-
-			ui.RequestAlertMessage(IDS_DEFAULTS_TITLE, IDS_DEFAULTS_TEXT, uiIDA, 2, m_iPad,&UIScene_SettingsMenu::ResetDefaultsDialogReturned,this);
-		}	
 		break;
 	}
 }

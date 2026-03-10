@@ -1,5 +1,8 @@
 #include "stdafx.h"
 #include "NetworkPlayerXbox.h"
+#ifdef _WINDOWS64
+#include "..\..\Common\Network\GameNetworkManager.h"
+#endif
 
 NetworkPlayerXbox::NetworkPlayerXbox(IQNetPlayer *qnetPlayer)
 {
@@ -17,6 +20,10 @@ void NetworkPlayerXbox::SendData(INetworkPlayer *player, const void *pvData, int
 	DWORD flags;
 	flags = QNET_SENDDATA_RELIABLE | QNET_SENDDATA_SEQUENTIAL;
 	if( lowPriority ) flags |= QNET_SENDDATA_LOW_PRIORITY | QNET_SENDDATA_SECONDARY;
+#ifdef _WINDOWS64
+	// Win64 stub transport uses this custom flag to select reliable TCP vs side UDP.
+	if (ack) flags |= NON_QNET_SENDDATA_ACK_REQUIRED;
+#endif
 	m_qnetPlayer->SendData(static_cast<NetworkPlayerXbox *>(player)->m_qnetPlayer, pvData, dataSize, flags);
 }
 

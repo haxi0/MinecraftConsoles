@@ -2312,14 +2312,15 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 		vcm.init();
 	}
 
-	// Push-To-Talk: Only capture if 'V' key or DPAD_UP is held
+	// Push-To-Talk input (used when voice mode is Push-To-Talk)
 	bool pttPressed = false;
 #ifdef _WINDOWS64
 	if (g_KBMInput.IsKeyDown('V')) pttPressed = true;
 #endif
 	if (InputManager.ButtonDown(iPad, MINECRAFT_ACTION_DPAD_UP)) pttPressed = true;
-	
+
 	vcm.setPushToTalk(pttPressed);
+
 	vcm.tick(this);
 
 	// Tick the opacity timer (to display the interface at default opacity for a certain time if the user has been navigating it)

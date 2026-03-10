@@ -60,6 +60,15 @@ struct Win64RemoteConnection
 	volatile bool active;
 };
 
+#pragma pack(push, 1)
+struct Win64SideUdpHeader
+{
+	BYTE fromSmallId;
+	BYTE toSmallId;
+	WORD payloadSize;
+};
+#pragma pack(pop)
+
 class WinsockNetLayer
 {
 public:
@@ -71,6 +80,7 @@ public:
 
 	static bool SendToSmallId(BYTE targetSmallId, const void* data, int dataSize);
 	static bool SendOnSocket(SOCKET sock, const void* data, int dataSize);
+	static bool SendToSmallIdUdp(BYTE fromSmallId, BYTE targetSmallId, const void* data, int dataSize);
 
 	// Non-host split-screen: additional TCP connections to host, one per pad
 	static bool JoinSplitScreen(int padIndex, BYTE* outSmallId);
@@ -112,11 +122,25 @@ private:
 	static DWORD WINAPI SplitScreenRecvThreadProc(LPVOID param);
 	static DWORD WINAPI AdvertiseThreadProc(LPVOID param);
 	static DWORD WINAPI DiscoveryThreadProc(LPVOID param);
+	static DWORD WINAPI SideUdpRecvThreadProc(LPVOID param);
+	static bool StartSideUdpHost(int port);
+	static bool StartSideUdpClient(const char* ip, int port);
+	static void StopSideUdp();
+	static bool SendSideUdpPacket(const sockaddr_in &addr, BYTE fromSmallId, BYTE toSmallId, const void* data, int dataSize);
 
 	static SOCKET s_listenSocket;
 	static SOCKET s_hostConnectionSocket;
 	static HANDLE s_acceptThread;
 	static HANDLE s_clientRecvThread;
+	static SOCKET s_sideUdpSocket;
+	static HANDLE s_sideUdpRecvThread;
+	static volatile bool s_sideUdpActive;
+	static sockaddr_in s_hostUdpAddr;
+	static bool s_hasHostUdpAddr;
+	static sockaddr_in s_smallIdToUdpAddr[256];
+	static bool s_smallIdHasUdpAddr[256];
+	static CRITICAL_SECTION s_sideUdpAddrLock;
+	static CRITICAL_SECTION s_sideUdpSendLock;
 
 	static bool s_isHost;
 	static bool s_connected;

@@ -80,6 +80,7 @@ public:
     virtual void onDisconnect(DisconnectPacket::eDisconnectReason reason, void *reasonObjects);
     void sendAndDisconnect(shared_ptr<Packet> packet);
     void send(shared_ptr<Packet> packet);
+	void queueSend(shared_ptr<Packet> packet);
     virtual void handleTakeItemEntity(shared_ptr<TakeItemEntityPacket> packet);
     virtual void handleChat(shared_ptr<ChatPacket> packet);
     virtual void handleAnimate(shared_ptr<AnimatePacket> packet);

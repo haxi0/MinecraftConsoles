@@ -98,6 +98,7 @@ public:
 	virtual bool canBeInvalidated();
 	virtual bool isInvalidatedBy(shared_ptr<Packet> packet);
 	virtual bool isAync();
+	virtual bool usesUdpTransport();
 
 	// 4J Stu - Brought these functions forward for enchanting/game rules
 	static shared_ptr<ItemInstance> readItem(DataInputStream *dis);

@@ -7,6 +7,8 @@
 class UIScene_SettingsGraphicsMenu : public UIScene
 {
 private:
+	bool m_bVoiceChatMode;
+
 	enum EControls
 	{
 		eControl_Clouds,
@@ -31,6 +33,10 @@ private:
 	UI_END_MAP_ELEMENTS_AND_NAMES()
 
 	bool m_bNotInGame;
+	void initVoiceChatSliders();
+	void handleVoiceSliderMove(int controlId, int value);
+	void enforceVoiceModeSwitch(int preferredControl);
+	void applyVoiceModeFromCheckboxes();
 public:
 	UIScene_SettingsGraphicsMenu(int iPad, void *initData, UILayer *parentLayer);
 	virtual ~UIScene_SettingsGraphicsMenu();
@@ -47,6 +53,7 @@ protected:
 public:
 	// INPUT
 	virtual void handleInput(int iPad, int key, bool repeat, bool pressed, bool released, bool &handled);
+	virtual void handleCheckboxToggled(F64 controlId, bool selected);
 
 	virtual void handleSliderMove(F64 sliderId, F64 currentValue);
 

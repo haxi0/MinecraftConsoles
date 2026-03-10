@@ -466,7 +466,7 @@ void Socket::SocketOutputStreamNetwork::write(byteArray b)
 
 void Socket::SocketOutputStreamNetwork::write(byteArray b, unsigned int offset, unsigned int length)
 {	
-	writeWithFlags(b, offset, length, 0);
+	writeWithFlags(b, offset, length, NON_QNET_SENDDATA_ACK_REQUIRED);
 }
 
 void Socket::SocketOutputStreamNetwork::writeWithFlags(byteArray b, unsigned int offset, unsigned int length, int flags)

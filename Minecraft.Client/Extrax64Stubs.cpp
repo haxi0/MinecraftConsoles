@@ -21,6 +21,7 @@
 #include "Windows64\Social\SocialManager.h"
 #include "Windows64\Sentient\DynamicConfigurations.h"
 #include "Windows64\Network\WinsockNetLayer.h"
+#include "Common\Network\GameNetworkManager.h"
 #include "Windows64\Windows64_Xuid.h"
 #elif defined __PSVITA__
 #include "PSVita\Sentient\SentientManager.h"
@@ -194,6 +195,13 @@ void IQNetPlayer::SendData(IQNetPlayer * player, const void* pvData, DWORD dwDat
 {
 	if (WinsockNetLayer::IsActive())
 	{
+		const bool requireAck = ((dwFlags & NON_QNET_SENDDATA_ACK_REQUIRED) == NON_QNET_SENDDATA_ACK_REQUIRED);
+		if (!requireAck)
+		{
+			if (WinsockNetLayer::SendToSmallIdUdp(m_smallId, player->m_smallId, pvData, static_cast<int>(dwDataSize)))
+				return;
+		}
+
 		if (!WinsockNetLayer::IsHosting() && !m_isRemote)
 		{
 			SOCKET sock = WinsockNetLayer::GetLocalSocket(m_smallId);

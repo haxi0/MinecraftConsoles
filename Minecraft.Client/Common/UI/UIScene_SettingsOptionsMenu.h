@@ -40,7 +40,7 @@ private:
 
 	bool m_bNotInGame;
 	bool m_bMashUpWorldsUnhideOption;
-	bool m_bNavigateToLanguageSelector;
+	bool m_bVoiceChatMode;
 
 public:
 	UIScene_SettingsOptionsMenu(int iPad, void *initData, UILayer *parentLayer);
@@ -61,6 +61,7 @@ public:
 	// INPUT
 	virtual void handleInput(int iPad, int key, bool repeat, bool pressed, bool released, bool &handled);
 	virtual void handlePress(F64 controlId, F64 childId);
+	virtual void handleCheckboxToggled(F64 controlId, bool selected);
 
 	virtual void handleReload();
 
@@ -68,5 +69,10 @@ public:
 
 protected:
 	void setGameSettings();
+	void setupVoiceChatMenu();
+	void setupStandardOptionsMenu();
+	void setVoiceDifficultyLabel();
+	void enforceVoiceModeSwitch(int preferredControl);
+	void placeVoiceBackButtonAtBottom();
 
 };

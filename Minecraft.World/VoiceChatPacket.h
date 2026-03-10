@@ -7,17 +7,20 @@ class VoiceChatPacket : public Packet, public enable_shared_from_this<VoiceChatP
 {
 public:
 	int senderPlayerId;
+	unsigned short sequence;
 	short dataLength;
 	byteArray audioData;
 
 	VoiceChatPacket();
-	VoiceChatPacket(int senderPlayerId, byteArray audioData, short dataLength);
+	VoiceChatPacket(int senderPlayerId, unsigned short sequence, byteArray audioData, short dataLength);
 	~VoiceChatPacket();
 
 	virtual void read(DataInputStream *dis);
 	virtual void write(DataOutputStream *dos);
 	virtual void handle(PacketListener *listener);
 	virtual int getEstimatedSize();
+	virtual bool usesUdpTransport() { return true; }
+	virtual bool isAync() { return true; }
 
 	static shared_ptr<Packet> create() { return std::make_shared<VoiceChatPacket>(); }
 	virtual int getId() { return 251; }

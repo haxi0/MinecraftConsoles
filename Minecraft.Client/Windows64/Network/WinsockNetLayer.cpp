@@ -18,6 +18,13 @@ SOCKET WinsockNetLayer::s_listenSocket = INVALID_SOCKET;
 SOCKET WinsockNetLayer::s_hostConnectionSocket = INVALID_SOCKET;
 HANDLE WinsockNetLayer::s_acceptThread = nullptr;
 HANDLE WinsockNetLayer::s_clientRecvThread = nullptr;
+SOCKET WinsockNetLayer::s_sideUdpSocket = INVALID_SOCKET;
+HANDLE WinsockNetLayer::s_sideUdpRecvThread = nullptr;
+volatile bool WinsockNetLayer::s_sideUdpActive = false;
+sockaddr_in WinsockNetLayer::s_hostUdpAddr = {};
+bool WinsockNetLayer::s_hasHostUdpAddr = false;
+sockaddr_in WinsockNetLayer::s_smallIdToUdpAddr[256] = {};
+bool WinsockNetLayer::s_smallIdHasUdpAddr[256] = {};
 
 bool WinsockNetLayer::s_isHost = false;
 bool WinsockNetLayer::s_connected = false;
@@ -53,6 +60,8 @@ CRITICAL_SECTION WinsockNetLayer::s_freeSmallIdLock;
 std::vector<BYTE> WinsockNetLayer::s_freeSmallIds;
 SOCKET WinsockNetLayer::s_smallIdToSocket[256];
 CRITICAL_SECTION WinsockNetLayer::s_smallIdToSocketLock;
+CRITICAL_SECTION WinsockNetLayer::s_sideUdpAddrLock;
+CRITICAL_SECTION WinsockNetLayer::s_sideUdpSendLock;
 
 SOCKET WinsockNetLayer::s_splitScreenSocket[XUSER_MAX_COUNT] = { INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET };
 BYTE WinsockNetLayer::s_splitScreenSmallId[XUSER_MAX_COUNT] = { 0xFF, 0xFF, 0xFF, 0xFF };
@@ -85,8 +94,14 @@ bool WinsockNetLayer::Initialize()
 	InitializeCriticalSection(&s_disconnectLock);
 	InitializeCriticalSection(&s_freeSmallIdLock);
 	InitializeCriticalSection(&s_smallIdToSocketLock);
+	InitializeCriticalSection(&s_sideUdpAddrLock);
+	InitializeCriticalSection(&s_sideUdpSendLock);
 	for (int i = 0; i < 256; i++)
+	{
 		s_smallIdToSocket[i] = INVALID_SOCKET;
+		s_smallIdHasUdpAddr[i] = false;
+	}
+	s_hasHostUdpAddr = false;
 
 	s_initialized = true;
 
@@ -99,6 +114,7 @@ void WinsockNetLayer::Shutdown()
 {
 	StopAdvertising();
 	StopDiscovery();
+	StopSideUdp();
 
 	s_active = false;
 	s_connected = false;
@@ -192,6 +208,8 @@ void WinsockNetLayer::Shutdown()
 		DeleteCriticalSection(&s_disconnectLock);
 		DeleteCriticalSection(&s_freeSmallIdLock);
 		DeleteCriticalSection(&s_smallIdToSocketLock);
+		DeleteCriticalSection(&s_sideUdpAddrLock);
+		DeleteCriticalSection(&s_sideUdpSendLock);
 		WSACleanup();
 		s_initialized = false;
 	}
@@ -214,6 +232,11 @@ bool WinsockNetLayer::HostGame(int port, const char* bindIp)
 	for (int i = 0; i < 256; i++)
 		s_smallIdToSocket[i] = INVALID_SOCKET;
 	LeaveCriticalSection(&s_smallIdToSocketLock);
+	EnterCriticalSection(&s_sideUdpAddrLock);
+	for (int i = 0; i < 256; i++)
+		s_smallIdHasUdpAddr[i] = false;
+	s_hasHostUdpAddr = false;
+	LeaveCriticalSection(&s_sideUdpAddrLock);
 
 	struct addrinfo hints = {};
 	struct addrinfo* result = nullptr;
@@ -269,6 +292,11 @@ bool WinsockNetLayer::HostGame(int port, const char* bindIp)
 
 	s_active = true;
 	s_connected = true;
+
+	if (!StartSideUdpHost(port))
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP failed to start on port %d, falling back to TCP-only for voice\n", port);
+	}
 
 	s_acceptThread = CreateThread(nullptr, 0, AcceptThreadProc, nullptr, 0, nullptr);
 
@@ -397,6 +425,11 @@ bool WinsockNetLayer::JoinGame(const char* ip, int port)
 	s_active = true;
 	s_connected = true;
 
+	if (!StartSideUdpClient(ip, port))
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP failed to start for %s:%d, falling back to TCP-only for voice\n", ip, port);
+	}
+
 	s_clientRecvThread = CreateThread(nullptr, 0, ClientRecvThreadProc, nullptr, 0, nullptr);
 
 	return true;
@@ -463,6 +496,69 @@ bool WinsockNetLayer::SendToSmallId(BYTE targetSmallId, const void* data, int da
 	else
 	{
 		return SendOnSocket(s_hostConnectionSocket, data, dataSize);
+	}
+}
+
+bool WinsockNetLayer::SendSideUdpPacket(const sockaddr_in &addr, BYTE fromSmallId, BYTE toSmallId, const void* data, int dataSize)
+{
+	if (s_sideUdpSocket == INVALID_SOCKET || data == nullptr || dataSize <= 0 || dataSize > 1400)
+		return false;
+
+	const int packetSize = static_cast<int>(sizeof(Win64SideUdpHeader)) + dataSize;
+	std::vector<BYTE> packet(packetSize);
+	Win64SideUdpHeader* header = reinterpret_cast<Win64SideUdpHeader*>(&packet[0]);
+	header->fromSmallId = fromSmallId;
+	header->toSmallId = toSmallId;
+	header->payloadSize = htons(static_cast<WORD>(dataSize));
+	memcpy(&packet[sizeof(Win64SideUdpHeader)], data, dataSize);
+
+	EnterCriticalSection(&s_sideUdpSendLock);
+	int sent = sendto(
+		s_sideUdpSocket,
+		reinterpret_cast<const char*>(&packet[0]),
+		packetSize,
+		0,
+		reinterpret_cast<const sockaddr*>(&addr),
+		sizeof(addr));
+	LeaveCriticalSection(&s_sideUdpSendLock);
+
+	return sent == packetSize;
+}
+
+bool WinsockNetLayer::SendToSmallIdUdp(BYTE fromSmallId, BYTE targetSmallId, const void* data, int dataSize)
+{
+	if (!s_active || !s_sideUdpActive)
+		return false;
+
+	if (s_isHost)
+	{
+		sockaddr_in addr = {};
+		bool hasAddr = false;
+		EnterCriticalSection(&s_sideUdpAddrLock);
+		if (targetSmallId < 256 && s_smallIdHasUdpAddr[targetSmallId])
+		{
+			addr = s_smallIdToUdpAddr[targetSmallId];
+			hasAddr = true;
+		}
+		LeaveCriticalSection(&s_sideUdpAddrLock);
+		if (!hasAddr)
+			return false;
+		return SendSideUdpPacket(addr, fromSmallId, targetSmallId, data, dataSize);
+	}
+	else
+	{
+		sockaddr_in addr = {};
+		bool hasAddr = false;
+		EnterCriticalSection(&s_sideUdpAddrLock);
+		if (s_hasHostUdpAddr)
+		{
+			addr = s_hostUdpAddr;
+			hasAddr = true;
+		}
+		LeaveCriticalSection(&s_sideUdpAddrLock);
+		if (!hasAddr)
+			return false;
+		return SendSideUdpPacket(addr, fromSmallId, targetSmallId, data, dataSize);
 	}
 }
 
@@ -713,6 +809,9 @@ DWORD WINAPI WinsockNetLayer::RecvThreadProc(LPVOID param)
 	EnterCriticalSection(&s_disconnectLock);
 	s_disconnectedSmallIds.push_back(clientSmallId);
 	LeaveCriticalSection(&s_disconnectLock);
+	EnterCriticalSection(&s_sideUdpAddrLock);
+	s_smallIdHasUdpAddr[clientSmallId] = false;
+	LeaveCriticalSection(&s_sideUdpAddrLock);
 
 	return 0;
 }
@@ -757,6 +856,9 @@ void WinsockNetLayer::CloseConnectionBySmallId(BYTE smallId)
 			closesocket(s_connections[i].tcpSocket);
 			s_connections[i].tcpSocket = INVALID_SOCKET;
 			app.DebugPrintf("Win64 LAN: Force-closed TCP connection for smallId=%d\n", smallId);
+			EnterCriticalSection(&s_sideUdpAddrLock);
+			s_smallIdHasUdpAddr[smallId] = false;
+			LeaveCriticalSection(&s_sideUdpAddrLock);
 			break;
 		}
 	}
@@ -968,6 +1070,208 @@ DWORD WINAPI WinsockNetLayer::ClientRecvThreadProc(LPVOID param)
 	}
 
 	s_connected = false;
+	return 0;
+}
+
+bool WinsockNetLayer::StartSideUdpHost(int port)
+{
+	StopSideUdp();
+
+	s_sideUdpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (s_sideUdpSocket == INVALID_SOCKET)
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP socket() failed: %d\n", WSAGetLastError());
+		return false;
+	}
+
+	BOOL reuseAddr = TRUE;
+	setsockopt(s_sideUdpSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuseAddr, sizeof(reuseAddr));
+
+	struct sockaddr_in bindAddr;
+	memset(&bindAddr, 0, sizeof(bindAddr));
+	bindAddr.sin_family = AF_INET;
+	bindAddr.sin_port = htons(static_cast<u_short>(port));
+	bindAddr.sin_addr.s_addr = INADDR_ANY;
+
+	if (::bind(s_sideUdpSocket, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) == SOCKET_ERROR)
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP bind failed on port %d: %d\n", port, WSAGetLastError());
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+		return false;
+	}
+
+	DWORD timeout = 200;
+	setsockopt(s_sideUdpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
+	EnterCriticalSection(&s_sideUdpAddrLock);
+	for (int i = 0; i < 256; i++)
+		s_smallIdHasUdpAddr[i] = false;
+	s_hasHostUdpAddr = false;
+	LeaveCriticalSection(&s_sideUdpAddrLock);
+
+	s_sideUdpActive = true;
+	s_sideUdpRecvThread = CreateThread(nullptr, 0, SideUdpRecvThreadProc, nullptr, 0, nullptr);
+	if (s_sideUdpRecvThread == nullptr)
+	{
+		s_sideUdpActive = false;
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+		return false;
+	}
+
+	app.DebugPrintf("Win64 LAN: Side UDP started (host) on port %d\n", port);
+	return true;
+}
+
+bool WinsockNetLayer::StartSideUdpClient(const char* ip, int port)
+{
+	StopSideUdp();
+
+	s_sideUdpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (s_sideUdpSocket == INVALID_SOCKET)
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP socket() failed: %d\n", WSAGetLastError());
+		return false;
+	}
+
+	DWORD timeout = 200;
+	setsockopt(s_sideUdpSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
+	struct sockaddr_in bindAddr;
+	memset(&bindAddr, 0, sizeof(bindAddr));
+	bindAddr.sin_family = AF_INET;
+	bindAddr.sin_port = htons(0);
+	bindAddr.sin_addr.s_addr = INADDR_ANY;
+
+	if (::bind(s_sideUdpSocket, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) == SOCKET_ERROR)
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP client bind failed: %d\n", WSAGetLastError());
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+		return false;
+	}
+
+	struct addrinfo hints = {};
+	struct addrinfo* result = nullptr;
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+
+	char portStr[16];
+	sprintf_s(portStr, "%d", port);
+	if (getaddrinfo(ip, portStr, &hints, &result) != 0 || result == nullptr)
+	{
+		app.DebugPrintf("Win64 LAN: Side UDP invalid host IP: %s\n", ip);
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+		return false;
+	}
+	sockaddr_in hostAddr = *reinterpret_cast<sockaddr_in*>(result->ai_addr);
+	freeaddrinfo(result);
+
+	EnterCriticalSection(&s_sideUdpAddrLock);
+	s_hostUdpAddr = hostAddr;
+	s_hasHostUdpAddr = true;
+	LeaveCriticalSection(&s_sideUdpAddrLock);
+
+	s_sideUdpActive = true;
+	s_sideUdpRecvThread = CreateThread(nullptr, 0, SideUdpRecvThreadProc, nullptr, 0, nullptr);
+	if (s_sideUdpRecvThread == nullptr)
+	{
+		s_sideUdpActive = false;
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+		EnterCriticalSection(&s_sideUdpAddrLock);
+		s_hasHostUdpAddr = false;
+		LeaveCriticalSection(&s_sideUdpAddrLock);
+		return false;
+	}
+
+	app.DebugPrintf("Win64 LAN: Side UDP started (client) to %s:%d\n", ip, port);
+	return true;
+}
+
+void WinsockNetLayer::StopSideUdp()
+{
+	s_sideUdpActive = false;
+
+	if (s_sideUdpSocket != INVALID_SOCKET)
+	{
+		closesocket(s_sideUdpSocket);
+		s_sideUdpSocket = INVALID_SOCKET;
+	}
+
+	if (s_sideUdpRecvThread != nullptr)
+	{
+		WaitForSingleObject(s_sideUdpRecvThread, 1000);
+		CloseHandle(s_sideUdpRecvThread);
+		s_sideUdpRecvThread = nullptr;
+	}
+
+	EnterCriticalSection(&s_sideUdpAddrLock);
+	s_hasHostUdpAddr = false;
+	for (int i = 0; i < 256; i++)
+		s_smallIdHasUdpAddr[i] = false;
+	LeaveCriticalSection(&s_sideUdpAddrLock);
+}
+
+DWORD WINAPI WinsockNetLayer::SideUdpRecvThreadProc(LPVOID param)
+{
+	std::vector<BYTE> recvBuf;
+	recvBuf.resize(1600);
+
+	while (s_sideUdpActive && s_sideUdpSocket != INVALID_SOCKET)
+	{
+		sockaddr_in senderAddr;
+		int senderLen = sizeof(senderAddr);
+
+		int recvLen = recvfrom(
+			s_sideUdpSocket,
+			reinterpret_cast<char*>(&recvBuf[0]),
+			static_cast<int>(recvBuf.size()),
+			0,
+			reinterpret_cast<sockaddr*>(&senderAddr),
+			&senderLen);
+
+		if (recvLen == SOCKET_ERROR)
+		{
+			if (!s_sideUdpActive)
+				break;
+			continue;
+		}
+
+		if (recvLen < static_cast<int>(sizeof(Win64SideUdpHeader)))
+			continue;
+
+		Win64SideUdpHeader* header = reinterpret_cast<Win64SideUdpHeader*>(&recvBuf[0]);
+		const int payloadSize = ntohs(header->payloadSize);
+		const int expectedSize = static_cast<int>(sizeof(Win64SideUdpHeader)) + payloadSize;
+		if (payloadSize <= 0 || expectedSize != recvLen)
+			continue;
+
+		if (s_isHost)
+		{
+			EnterCriticalSection(&s_sideUdpAddrLock);
+			s_smallIdToUdpAddr[header->fromSmallId] = senderAddr;
+			s_smallIdHasUdpAddr[header->fromSmallId] = true;
+			LeaveCriticalSection(&s_sideUdpAddrLock);
+		}
+		else
+		{
+			EnterCriticalSection(&s_sideUdpAddrLock);
+			s_hostUdpAddr = senderAddr;
+			s_hasHostUdpAddr = true;
+			LeaveCriticalSection(&s_sideUdpAddrLock);
+		}
+
+		HandleDataReceived(
+			header->fromSmallId,
+			header->toSmallId,
+			&recvBuf[sizeof(Win64SideUdpHeader)],
+			static_cast<unsigned int>(payloadSize));
+	}
+
 	return 0;
 }
 

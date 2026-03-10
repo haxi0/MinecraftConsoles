@@ -14,6 +14,35 @@ UIScene_SettingsAudioMenu::UIScene_SettingsAudioMenu(int iPad, void *initData, U
 	swprintf( (WCHAR *)TempString, 256, L"%ls: %d%%", app.GetString( IDS_SLIDER_SOUND ),app.GetGameSettings(m_iPad,eGameSetting_SoundFXVolume));	
 	m_sliderSound.init(TempString,eControl_Sound,0,100,app.GetGameSettings(m_iPad,eGameSetting_SoundFXVolume));
 
+	m_hasVoiceChatButton = false;
+	IggyValuePath *root = IggyPlayerRootPath(getMovie());
+	static const char *kVoiceButtonCandidates[] =
+	{
+		"VoiceChat",
+		"Button3",
+		"Button2",
+		"Button1",
+		"Languages"
+	};
+
+	for (int i = 0; i < static_cast<int>(sizeof(kVoiceButtonCandidates) / sizeof(kVoiceButtonCandidates[0])); ++i)
+	{
+		if (m_buttonVoiceChat.setupControl(this, root, kVoiceButtonCandidates[i]))
+		{
+			m_buttonVoiceChat.m_pParentPanel = nullptr;
+			m_controls.push_back(&m_buttonVoiceChat);
+			m_buttonVoiceChat.init(UIString(L"Voice Chat"), eControl_VoiceChat);
+			m_hasVoiceChatButton = true;
+			app.DebugPrintf("SettingsAudio: Voice button bound to '%s'\n", kVoiceButtonCandidates[i]);
+			break;
+		}
+	}
+
+	if (!m_hasVoiceChatButton)
+	{
+		app.DebugPrintf("SettingsAudio: No button control available in audio scene; fallback to X tooltip/action\n");
+	}
+
 	doHorizontalResizeCheck();
 
 	if(app.GetLocalPlayerCount()>1)
@@ -42,7 +71,7 @@ wstring UIScene_SettingsAudioMenu::getMoviePath()
 
 void UIScene_SettingsAudioMenu::updateTooltips()
 {
-	ui.SetTooltips( m_iPad, IDS_TOOLTIPS_SELECT,IDS_TOOLTIPS_BACK);
+	ui.SetTooltips( m_iPad, IDS_TOOLTIPS_SELECT, IDS_TOOLTIPS_BACK, m_hasVoiceChatButton ? -1 : IDS_TOOLTIPS_OPTIONS);
 }
 
 void UIScene_SettingsAudioMenu::updateComponents()
@@ -86,6 +115,28 @@ void UIScene_SettingsAudioMenu::handleInput(int iPad, int key, bool repeat, bool
 	case ACTION_MENU_LEFT:
 	case ACTION_MENU_RIGHT:
 		sendInputToMovie(key, repeat, pressed, released);
+		break;
+	case ACTION_MENU_X:
+		if (pressed && !m_hasVoiceChatButton)
+		{
+			static int s_voiceChatMenuInitData = 2;
+			ui.NavigateToScene(m_iPad, eUIScene_SettingsGraphicsMenu, &s_voiceChatMenuInitData);
+			handled = true;
+		}
+		break;
+	}
+}
+
+void UIScene_SettingsAudioMenu::handlePress(F64 controlId, F64 childId)
+{
+	ui.PlayUISFX(eSFX_Press);
+	switch (static_cast<int>(controlId))
+	{
+	case eControl_VoiceChat:
+		{
+			static int s_voiceChatMenuInitData = 2;
+			ui.NavigateToScene(m_iPad, eUIScene_SettingsGraphicsMenu, &s_voiceChatMenuInitData);
+		}
 		break;
 	}
 }

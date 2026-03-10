@@ -510,6 +510,11 @@ bool Packet::isAync()
 	return false;
 }
 
+bool Packet::usesUdpTransport()
+{
+	return false;
+}
+
 // 4J Stu - Brought these functions forward for enchanting/game rules
 shared_ptr<ItemInstance> Packet::readItem(DataInputStream *dis)
 {

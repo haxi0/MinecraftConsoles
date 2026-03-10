@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "UI.h"
 #include "UIScene_SettingsOptionsMenu.h"
+#include "..\..\VoiceChatManager.h"
 
 #if defined(_XBOX_ONE)
 #define _ENABLE_LANGUAGE_SELECT
@@ -22,13 +23,99 @@ int UIScene_SettingsOptionsMenu::m_iDifficultyTitleSettingA[4]=
 	IDS_DIFFICULTY_TITLE_HARD
 };
 
+namespace
+{
+	static int s_voiceChatMenuInitData = 1;
+	static const int MAX_VOICE_VOLUME_PERCENT = 200;
+
+	static void SetControlY(UIScene &scene, UIControl &control, int y)
+	{
+		IggyName yName = scene.registerFastName(L"y");
+		IggyValueSetF64RS(control.getIggyValuePath(), yName, nullptr, static_cast<F64>(y));
+		control.UpdateControl();
+	}
+}
+
 UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initData, UILayer *parentLayer) : UIScene(iPad, parentLayer)
 {
-	m_bNavigateToLanguageSelector = false;
+	m_bVoiceChatMode = (initData != nullptr && *(static_cast<int *>(initData)) == s_voiceChatMenuInitData);
 
 	// Setup all the Iggy references we need for this scene
 	initialiseMovie();
-	
+
+	if (m_bVoiceChatMode)
+	{
+		setupVoiceChatMenu();
+	}
+	else
+	{
+		setupStandardOptionsMenu();
+	}
+}
+
+UIScene_SettingsOptionsMenu::~UIScene_SettingsOptionsMenu()
+{
+}
+
+void UIScene_SettingsOptionsMenu::setupVoiceChatMenu()
+{
+	VoiceChatManager &vcm = VoiceChatManager::getInstance();
+	if (!vcm.isInitialized())
+	{
+		vcm.init();
+	}
+
+	m_bNotInGame = (Minecraft::GetInstance()->level == nullptr);
+	m_bMashUpWorldsUnhideOption = false;
+
+	const bool proximityEnabled = vcm.isProximityEnabled();
+	m_checkboxViewBob.init(UIString(L"Proximity"), eControl_ViewBob, proximityEnabled);
+	m_checkboxShowHints.init(UIString(L"Voice Activate"), eControl_ShowHints, !proximityEnabled);
+
+	removeControl(&m_checkboxShowTooltips, true);
+	removeControl(&m_checkboxInGameGamertags, true);
+	removeControl(&m_checkboxMashupWorlds, true);
+	removeControl(&m_labelDifficultyText, true);
+
+	static wchar_t micVolumeLabels[MAX_VOICE_VOLUME_PERCENT + 1][256];
+	static wchar_t voiceVolumeLabels[MAX_VOICE_VOLUME_PERCENT + 1][256];
+	for (int i = 0; i <= MAX_VOICE_VOLUME_PERCENT; ++i)
+	{
+		swprintf(micVolumeLabels[i], 256, L"Mic Volume: %d%%", i);
+		swprintf(voiceVolumeLabels[i], 256, L"Voice Chat Volume: %d%%", i);
+	}
+
+	int micVolume = vcm.getMicVolumePercent();
+	int voiceVolume = vcm.getVoiceChatVolumePercent();
+	if (micVolume < 0) micVolume = 0;
+	if (micVolume > MAX_VOICE_VOLUME_PERCENT) micVolume = MAX_VOICE_VOLUME_PERCENT;
+	if (voiceVolume < 0) voiceVolume = 0;
+	if (voiceVolume > MAX_VOICE_VOLUME_PERCENT) voiceVolume = MAX_VOICE_VOLUME_PERCENT;
+
+	m_sliderAutosave.setAllPossibleLabels(MAX_VOICE_VOLUME_PERCENT + 1, micVolumeLabels);
+	m_sliderAutosave.init(micVolumeLabels[micVolume], eControl_Autosave, 0, MAX_VOICE_VOLUME_PERCENT, micVolume);
+	m_sliderDifficulty.setAllPossibleLabels(MAX_VOICE_VOLUME_PERCENT + 1, voiceVolumeLabels);
+	m_sliderDifficulty.init(voiceVolumeLabels[voiceVolume], eControl_Difficulty, 0, MAX_VOICE_VOLUME_PERCENT, voiceVolume);
+
+	m_buttonLanguageSelect.init(UIString(L"Back"), eControl_Languages);
+
+	m_labelDifficultyText.setVisible(false);
+	placeVoiceBackButtonAtBottom();
+
+	doHorizontalResizeCheck();
+
+	if (app.GetLocalPlayerCount() > 1)
+	{
+#if TO_BE_IMPLEMENTED
+		app.AdjustSplitscreenScene(m_hObj,&m_OriginalPosition,m_iPad);
+#endif
+	}
+
+	m_labelDifficultyText.disableReinitialisation();
+}
+
+void UIScene_SettingsOptionsMenu::setupStandardOptionsMenu()
+{
 	m_bNotInGame=(Minecraft::GetInstance()->level==nullptr);
 
 	m_checkboxViewBob.init(IDS_VIEW_BOBBING,eControl_ViewBob,(app.GetGameSettings(m_iPad,eGameSetting_ViewBob)!=0));
@@ -45,7 +132,6 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	}
 	else
 	{
-		//m_checkboxMashupWorlds.init(L"",eControl_ShowMashUpWorlds,false);
 		removeControl(&m_checkboxMashupWorlds, true);
 		m_bMashUpWorldsUnhideOption=false;
 	}
@@ -57,13 +143,12 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	{
 		if(i==0)
 		{
-			swprintf( autosaveLabels[i], 256, L"%ls", app.GetString( IDS_SLIDER_AUTOSAVE_OFF ));		
+			swprintf( autosaveLabels[i], 256, L"%ls", app.GetString( IDS_SLIDER_AUTOSAVE_OFF ));
 		}
 		else
 		{
-			swprintf( autosaveLabels[i], 256, L"%ls: %d %ls", app.GetString( IDS_SLIDER_AUTOSAVE ),i*15, app.GetString( IDS_MINUTES ));		
+			swprintf( autosaveLabels[i], 256, L"%ls: %d %ls", app.GetString( IDS_SLIDER_AUTOSAVE ),i*15, app.GetString( IDS_MINUTES ));
 		}
-
 	}
 	m_sliderAutosave.setAllPossibleLabels(9,autosaveLabels);
 	m_sliderAutosave.init(autosaveLabels[ucValue],eControl_Autosave,0,8,ucValue);
@@ -76,21 +161,15 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	wchar_t difficultyLabels[4][256];
 	for(unsigned int i = 0; i < 4; ++i)
 	{
-		swprintf( difficultyLabels[i], 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ),app.GetString(m_iDifficultyTitleSettingA[i]));	
+		swprintf( difficultyLabels[i], 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ),app.GetString(m_iDifficultyTitleSettingA[i]));
 	}
 	m_sliderDifficulty.setAllPossibleLabels(4,difficultyLabels);
 	m_sliderDifficulty.init(difficultyLabels[ucValue],eControl_Difficulty,0,3,ucValue);
 
- 	wstring wsText=app.GetString(m_iDifficultySettingA[app.GetGameSettings(m_iPad,eGameSetting_Difficulty)]);
-	EHTMLFontSize size = eHTMLSize_Normal;
-	if(!RenderManager.IsHiDef() && !RenderManager.IsWidescreen())
-	{
-		size = eHTMLSize_Splitscreen;
-	}
+	wstring wsText=app.GetString(m_iDifficultySettingA[app.GetGameSettings(m_iPad,eGameSetting_Difficulty)]);
 	wchar_t startTags[64];
 	swprintf(startTags,64,L"<font color=\"#%08x\">",app.GetHTMLColour(eHTMLColor_White));
- 	wsText= startTags + wsText;
-
+	wsText= startTags + wsText;
 	m_labelDifficultyText.init(wsText);
 
 	// If you are in-game, only the game host can change in-game gamertags, and you can't change difficulty
@@ -98,7 +177,7 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	bool bRemoveDifficulty=false;
 	bool bRemoveAutosave=false;
 	bool bRemoveInGameGamertags=false;
-	
+
 	bool bNotInGame=(Minecraft::GetInstance()->level==nullptr);
 	bool bPrimaryPlayer = ProfileManager.GetPrimaryPad()==m_iPad;
 	if(!bPrimaryPlayer)
@@ -108,13 +187,13 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 		bRemoveInGameGamertags=true;
 	}
 
-	if(!bNotInGame) // in the game
-	{ 
+	if(!bNotInGame)
+	{
 		bRemoveDifficulty=true;
 		if(!g_NetworkManager.IsHost())
 		{
 			bRemoveAutosave=true;
-			bRemoveInGameGamertags=true;	
+			bRemoveInGameGamertags=true;
 		}
 	}
 	if(bRemoveDifficulty)
@@ -137,11 +216,11 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	// MGH - disabled the language select for the patch build, we'll re-enable afterwards
 	// 4J Stu - Removed it with a preprocessor def as we turn this off in various places
 #ifdef _ENABLE_LANGUAGE_SELECT
-	if (app.GetGameStarted())	
+	if (app.GetGameStarted())
 	{
 		removeControl( &m_buttonLanguageSelect, false );
 	}
-	else						
+	else
 	{
 		m_buttonLanguageSelect.init(IDS_LANGUAGE_SELECTOR, eControl_Languages);
 	}
@@ -161,20 +240,96 @@ UIScene_SettingsOptionsMenu::UIScene_SettingsOptionsMenu(int iPad, void *initDat
 	m_labelDifficultyText.disableReinitialisation();
 }
 
-UIScene_SettingsOptionsMenu::~UIScene_SettingsOptionsMenu()
+void UIScene_SettingsOptionsMenu::setVoiceDifficultyLabel()
 {
+	m_labelDifficultyText.setVisible(false);
+}
+
+void UIScene_SettingsOptionsMenu::enforceVoiceModeSwitch(int preferredControl)
+{
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	bool proximity = m_checkboxViewBob.IsChecked();
+	bool voiceActivate = m_checkboxShowHints.IsChecked();
+
+	if (proximity == voiceActivate)
+	{
+		if (preferredControl == eControl_ShowHints)
+		{
+			proximity = false;
+			voiceActivate = true;
+		}
+		else
+		{
+			proximity = true;
+			voiceActivate = false;
+		}
+	}
+
+	m_checkboxViewBob.setChecked(proximity);
+	m_checkboxShowHints.setChecked(voiceActivate);
+}
+
+void UIScene_SettingsOptionsMenu::placeVoiceBackButtonAtBottom()
+{
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	m_sliderAutosave.UpdateControl();
+	m_sliderDifficulty.UpdateControl();
+	m_buttonLanguageSelect.UpdateControl();
+	m_checkboxViewBob.UpdateControl();
+	m_checkboxShowHints.UpdateControl();
+
+	const int rowSpacing = 8;
+	const int bottomPadding = 6;
+	const int controlsTop = m_checkboxViewBob.getYPos() + m_checkboxViewBob.getHeight();
+	const int hintsBottom = m_checkboxShowHints.getYPos() + m_checkboxShowHints.getHeight();
+	const int minAutosaveY = ((controlsTop > hintsBottom) ? controlsTop : hintsBottom) + rowSpacing;
+	int autosaveY = m_sliderAutosave.getYPos();
+	if (autosaveY < minAutosaveY)
+	{
+		autosaveY = minAutosaveY;
+	}
+
+	int difficultyY = autosaveY + m_sliderAutosave.getHeight() + rowSpacing;
+	int backY = difficultyY + m_sliderDifficulty.getHeight() + rowSpacing;
+
+	UIControl *pPanel = m_buttonLanguageSelect.getParentPanel();
+	if (pPanel != nullptr)
+	{
+		pPanel->UpdateControl();
+		const int maxBackY = pPanel->getHeight() - m_buttonLanguageSelect.getHeight() - bottomPadding;
+		if (backY > maxBackY)
+		{
+			const int overflow = backY - maxBackY;
+			autosaveY -= overflow;
+			if (autosaveY < minAutosaveY)
+			{
+				autosaveY = minAutosaveY;
+			}
+			difficultyY = autosaveY + m_sliderAutosave.getHeight() + rowSpacing;
+			backY = difficultyY + m_sliderDifficulty.getHeight() + rowSpacing;
+			if (backY > maxBackY)
+			{
+				backY = maxBackY;
+			}
+		}
+	}
+
+	SetControlY(*this, m_sliderAutosave, autosaveY);
+	SetControlY(*this, m_sliderDifficulty, difficultyY);
+	SetControlY(*this, m_buttonLanguageSelect, backY);
 }
 
 void UIScene_SettingsOptionsMenu::tick()
 {
 	UIScene::tick();
-
-	if (m_bNavigateToLanguageSelector)
-	{
-		m_bNavigateToLanguageSelector = false;
-		setGameSettings();
-		ui.NavigateToScene(m_iPad, eUIScene_LanguageSelector);
-	}
 }
 
 wstring UIScene_SettingsOptionsMenu::getMoviePath()
@@ -245,140 +400,103 @@ void UIScene_SettingsOptionsMenu::handlePress(F64 controlId, F64 childId)
 
 	switch(static_cast<int>(controlId))
 	{
+	case eControl_ViewBob:
+		if (m_bVoiceChatMode)
+		{
+			m_checkboxViewBob.setChecked(true);
+			m_checkboxShowHints.setChecked(false);
+			enforceVoiceModeSwitch(eControl_ViewBob);
+			setGameSettings();
+			break;
+		}
+		break;
+	case eControl_ShowHints:
+		if (m_bVoiceChatMode)
+		{
+			m_checkboxViewBob.setChecked(false);
+			m_checkboxShowHints.setChecked(true);
+			enforceVoiceModeSwitch(eControl_ShowHints);
+			setGameSettings();
+			break;
+		}
+		break;
 	case eControl_Languages:
-		m_bNavigateToLanguageSelector = true;
+		if (m_bVoiceChatMode)
+		{
+			setGameSettings();
+			navigateBack();
+		}
+		else
+		{
+			setGameSettings();
+			ui.NavigateToScene(m_iPad, eUIScene_LanguageSelector);
+		}
+		break;
+	}
+}
+
+void UIScene_SettingsOptionsMenu::handleCheckboxToggled(F64 controlId, bool selected)
+{
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	switch (static_cast<int>(controlId))
+	{
+	case eControl_ViewBob:
+		m_checkboxViewBob.setChecked(selected);
+		m_checkboxShowHints.setChecked(!selected);
+		enforceVoiceModeSwitch(eControl_ViewBob);
+		setGameSettings();
+		break;
+	case eControl_ShowHints:
+		m_checkboxShowHints.setChecked(selected);
+		m_checkboxViewBob.setChecked(!selected);
+		enforceVoiceModeSwitch(eControl_ShowHints);
+		setGameSettings();
 		break;
 	}
 }
 
 void UIScene_SettingsOptionsMenu::handleReload()
 {
-	m_bNavigateToLanguageSelector = false;
-
-	m_checkboxViewBob.init(IDS_VIEW_BOBBING,eControl_ViewBob,(app.GetGameSettings(m_iPad,eGameSetting_ViewBob)!=0));
-	m_checkboxShowHints.init(IDS_HINTS,eControl_ShowHints,(app.GetGameSettings(m_iPad,eGameSetting_Hints)!=0));
-	m_checkboxShowTooltips.init(IDS_IN_GAME_TOOLTIPS,eControl_ShowTooltips,(app.GetGameSettings(m_iPad,eGameSetting_Tooltips)!=0));
-	m_checkboxInGameGamertags.init(IDS_IN_GAME_GAMERTAGS,eControl_InGameGamertags,(app.GetGameSettings(m_iPad,eGameSetting_GamertagsVisible)!=0));
-
-	// check if we should display the mash-up option
-	if(m_bNotInGame && app.GetMashupPackWorlds(m_iPad)!=0xFFFFFFFF)
+	if (m_bVoiceChatMode)
 	{
-		// the mash-up option is needed
-		m_bMashUpWorldsUnhideOption=true;
+		setupVoiceChatMenu();
 	}
 	else
 	{
-		//m_checkboxMashupWorlds.init(L"",eControl_ShowMashUpWorlds,false);
-		removeControl(&m_checkboxMashupWorlds, true);
-		m_bMashUpWorldsUnhideOption=false;
+		setupStandardOptionsMenu();
 	}
-
-	unsigned char ucValue=app.GetGameSettings(m_iPad,eGameSetting_Autosave);
-
-	wchar_t autosaveLabels[9][256];
-	for(unsigned int i = 0; i < 9; ++i)
-	{
-		if(i==0)
-		{
-			swprintf( autosaveLabels[i], 256, L"%ls", app.GetString( IDS_SLIDER_AUTOSAVE_OFF ));		
-		}
-		else
-		{
-			swprintf( autosaveLabels[i], 256, L"%ls: %d %ls", app.GetString( IDS_SLIDER_AUTOSAVE ),i*15, app.GetString( IDS_MINUTES ));		
-		}
-
-	}
-	m_sliderAutosave.setAllPossibleLabels(9,autosaveLabels);
-	m_sliderAutosave.init(autosaveLabels[ucValue],eControl_Autosave,0,8,ucValue);
-
-#if defined(_XBOX_ONE) || defined(__ORBIS__)
-	removeControl(&m_sliderAutosave,true);
-#endif
-
-	ucValue = app.GetGameSettings(m_iPad,eGameSetting_Difficulty);
-
-	wchar_t difficultyLabels[4][256];
-	for(unsigned int i = 0; i < 4; ++i)
-	{
-		swprintf( difficultyLabels[i], 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ),app.GetString(m_iDifficultyTitleSettingA[i]));	
-	}
-	m_sliderDifficulty.setAllPossibleLabels(4,difficultyLabels);
-	m_sliderDifficulty.init(difficultyLabels[ucValue],eControl_Difficulty,0,3,ucValue);
-
-	wstring wsText=app.GetString(m_iDifficultySettingA[app.GetGameSettings(m_iPad,eGameSetting_Difficulty)]);
-	EHTMLFontSize size = eHTMLSize_Normal;
-	if(!RenderManager.IsHiDef() && !RenderManager.IsWidescreen())
-	{
-		size = eHTMLSize_Splitscreen;
-	}
-	wchar_t startTags[64];
-	swprintf(startTags,64,L"<font color=\"#%08x\">",app.GetHTMLColour(eHTMLColor_White));
- 	wsText= startTags + wsText;
-
-	m_labelDifficultyText.init(wsText);
-	
-
-	// If you are in-game, only the game host can change in-game gamertags, and you can't change difficulty
-	// only the primary player gets to change the autosave and difficulty settings
-	bool bRemoveDifficulty=false;
-	bool bRemoveAutosave=false;
-	bool bRemoveInGameGamertags=false;
-	
-	bool bNotInGame=(Minecraft::GetInstance()->level==nullptr);
-	bool bPrimaryPlayer = ProfileManager.GetPrimaryPad()==m_iPad;
-	if(!bPrimaryPlayer)
-	{
-		bRemoveDifficulty=true;
-		bRemoveAutosave=true;
-		bRemoveInGameGamertags=true;
-	}
-
-	if(!bNotInGame) // in the game
-	{ 
-		bRemoveDifficulty=true;
-		if(!g_NetworkManager.IsHost())
-		{
-			bRemoveAutosave=true;
-			bRemoveInGameGamertags=true;	
-		}
-	}
-	if(bRemoveDifficulty)
-	{
-		m_labelDifficultyText.setVisible( false );
-		removeControl(&m_sliderDifficulty, true);
-	}
-
-	if(bRemoveAutosave)
-	{
-		removeControl(&m_sliderAutosave, true);
-	}
-
-	if(bRemoveInGameGamertags)
-	{
-		removeControl(&m_checkboxInGameGamertags, true);
-	}
-
-	// MGH - disabled the language select for the patch build, we'll re-enable afterwards
-	// 4J Stu - Removed it with a preprocessor def as we turn this off in various places
-#ifdef _ENABLE_LANGUAGE_SELECT
-	// 4J-JEV: Changing languages in-game will produce many a bug.
-	if (app.GetGameStarted())	
-	{
-		removeControl( &m_buttonLanguageSelect, false );
-	}
-	else						
-	{
-	}
-#else
-	removeControl( &m_buttonLanguageSelect, false );
-#endif
-
-	doHorizontalResizeCheck();
 }
 
 void UIScene_SettingsOptionsMenu::handleSliderMove(F64 sliderId, F64 currentValue)
 {
 	int value = static_cast<int>(currentValue);
+
+	if (m_bVoiceChatMode)
+	{
+		VoiceChatManager &vcm = VoiceChatManager::getInstance();
+		WCHAR TempString[256];
+		switch(static_cast<int>(sliderId))
+		{
+		case eControl_Autosave:
+			vcm.setMicVolumePercent(value);
+			swprintf(TempString, 256, L"Mic Volume: %d%%", value);
+			m_sliderAutosave.setLabel(TempString);
+			m_sliderAutosave.handleSliderMove(value);
+			break;
+		case eControl_Difficulty:
+			vcm.setVoiceChatVolumePercent(value);
+			swprintf(TempString, 256, L"Voice Chat Volume: %d%%", value);
+			m_sliderDifficulty.setLabel(TempString);
+			m_sliderDifficulty.handleSliderMove(value);
+			break;
+		}
+		return;
+	}
+
 	switch(static_cast<int>(sliderId))
 	{
 	case eControl_Autosave:
@@ -410,6 +528,18 @@ void UIScene_SettingsOptionsMenu::handleSliderMove(F64 sliderId, F64 currentValu
 
 void UIScene_SettingsOptionsMenu::setGameSettings()
 {
+	if (m_bVoiceChatMode)
+	{
+		enforceVoiceModeSwitch(-1);
+		VoiceChatManager &vcm = VoiceChatManager::getInstance();
+		const bool proximityEnabled = m_checkboxViewBob.IsChecked();
+		vcm.setProximityEnabled(proximityEnabled);
+		vcm.setVoiceInputMode(!proximityEnabled
+			? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
+			: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
+		return;
+	}
+
 	// check the checkboxes
 	app.SetGameSettings(m_iPad,eGameSetting_ViewBob,m_checkboxViewBob.IsChecked()?1:0);
 	app.SetGameSettings(m_iPad,eGameSetting_GamertagsVisible,m_checkboxInGameGamertags.IsChecked()?1:0);

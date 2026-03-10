@@ -246,9 +246,9 @@ bool Connection::writeTick()
 
 		LeaveCriticalSection(&writeLock);
 
-		// If the shouldDelay flag is still set at this point then we want to write it to QNet as a single packet with priority flags
-		// Otherwise just buffer the packet with other outgoing packets as the java game did
-		if(packet->shouldDelay)
+		// For delay-sensitive packets (or UDP packets), send as standalone datagrams.
+		// Everything else can still be buffered with the normal stream.
+		if(packet->shouldDelay || packet->usesUdpTransport())
 		{
 			// Flush any buffered data BEFORE writing directly to the socket.
 			// bufferedDos and sos->writeWithFlags both write to the same underlying
@@ -263,10 +263,12 @@ bool Connection::writeTick()
 			// 4J Stu - Changed this so that rather than writing to the network stream through a buffered stream we want to:
 			// a) Only push whole "game" packets to QNet, rather than amalgamated chunks of data that may include many packets, and partial packets
 			// b) To be able to change the priority and queue of a packet if required
+			int flags = 0;
 #ifdef _XBOX
-			int flags = QNET_SENDDATA_LOW_PRIORITY | QNET_SENDDATA_SECONDARY;
+			flags = QNET_SENDDATA_LOW_PRIORITY | QNET_SENDDATA_SECONDARY;
 #else
-			int flags = NON_QNET_SENDDATA_ACK_REQUIRED;
+			// If not UDP, request ACK for important delayed packets.
+			flags = packet->usesUdpTransport() ? 0 : NON_QNET_SENDDATA_ACK_REQUIRED;
 #endif
 			sos->writeWithFlags( baos->buf, 0, baos->size(), flags  );
 			baos->reset();
