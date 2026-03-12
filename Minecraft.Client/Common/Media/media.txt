@@ -5,3 +5,4 @@ Graphics\MinecraftIcon.png
 Graphics\TexturePackIcon.png
 Graphics\InGameInfo\voiceSpeaking.png
 Graphics\InGameInfo\voiceNotSpeaking.png
+Graphics\InGameInfo\voiceMuted.png

@@ -1472,7 +1472,10 @@ void Minecraft::run_middle()
 						if(InputManager.ButtonPressed(i, MINECRAFT_ACTION_SNEAK_TOGGLE))		localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_SNEAK_TOGGLE;
 					}
 					if(InputManager.ButtonPressed(i, MINECRAFT_ACTION_RENDER_THIRD_PERSON))		localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_RENDER_THIRD_PERSON;
-					if(InputManager.ButtonPressed(i, MINECRAFT_ACTION_GAME_INFO))				localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_GAME_INFO;
+					const bool voiceMutePressed = InputManager.ButtonPressed(i, MINECRAFT_ACTION_VOICE_MUTE);
+					if(voiceMutePressed)														localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_VOICE_MUTE;
+					if(!voiceMutePressed && InputManager.ButtonPressed(i, MINECRAFT_ACTION_GAME_INFO))
+																						localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_GAME_INFO;
 
 #ifdef _WINDOWS64
 					// Keyboard/mouse button presses for player 0
@@ -1549,6 +1552,11 @@ void Minecraft::run_middle()
 						if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_DEBUG_MENU))
 						{
 							localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_RENDER_DEBUG;
+						}
+
+						if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_VOICE_MUTE))
+						{
+							localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_VOICE_MUTE;
 						}
 
 						// In flying mode, Shift held = sneak/descend
@@ -2312,12 +2320,19 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 		vcm.init();
 	}
 
+	// Toggle local voice mute while in gameplay.
+	if (screen == nullptr && !ui.GetMenuDisplayed(iPad) && (player->ullButtonsPressed & (1LL << MINECRAFT_ACTION_VOICE_MUTE)))
+	{
+		vcm.toggleLocalMuted();
+	}
+
 	// Push-To-Talk input (used when voice mode is Push-To-Talk)
 	bool pttPressed = false;
 #ifdef _WINDOWS64
-	if (g_KBMInput.IsKeyDown('V')) pttPressed = true;
+	if (iPad == 0 && g_KBMInput.IsKeyDown(KeyboardMouseInput::KEY_VOICE_PTT)) pttPressed = true;
 #endif
 	if (InputManager.ButtonDown(iPad, MINECRAFT_ACTION_DPAD_UP)) pttPressed = true;
+	if (vcm.isLocalMuted()) pttPressed = false;
 
 	vcm.setPushToTalk(pttPressed);
 

@@ -62,11 +62,24 @@ namespace
 	static const float VOICE_ICON_HALF_HEIGHT = 8.0f;
 	static const float VOICE_ICON_HALF_WIDTH = VOICE_ICON_HALF_HEIGHT * (60.0f / 40.0f);
 
-	BufferedImage *LoadVoiceIndicatorImage(bool speaking)
+	enum VoiceIndicatorState
 	{
-		const wchar_t *filePath = speaking
-			? L"Common\\Media\\Graphics\\InGameInfo\\voiceSpeaking.png"
-			: L"Common\\Media\\Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		VOICE_INDICATOR_NOT_SPEAKING = 0,
+		VOICE_INDICATOR_SPEAKING = 1,
+		VOICE_INDICATOR_MUTED = 2
+	};
+
+	BufferedImage *LoadVoiceIndicatorImage(VoiceIndicatorState state)
+	{
+		const wchar_t *filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		if (state == VOICE_INDICATOR_SPEAKING)
+		{
+			filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceSpeaking.png";
+		}
+		else if (state == VOICE_INDICATOR_MUTED)
+		{
+			filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceMuted.png";
+		}
 		File file(filePath);
 		if (file.exists())
 		{
@@ -84,9 +97,15 @@ namespace
 			delete[] imageBytes.data;
 		}
 
-		const wchar_t *archivePath = speaking
-			? L"Graphics\\InGameInfo\\voiceSpeaking.png"
-			: L"Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		const wchar_t *archivePath = L"Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		if (state == VOICE_INDICATOR_SPEAKING)
+		{
+			archivePath = L"Graphics\\InGameInfo\\voiceSpeaking.png";
+		}
+		else if (state == VOICE_INDICATOR_MUTED)
+		{
+			archivePath = L"Graphics\\InGameInfo\\voiceMuted.png";
+		}
 		if (!app.hasArchiveFile(archivePath))
 		{
 			return nullptr;
@@ -103,18 +122,21 @@ namespace
 		return image;
 	}
 
-	int GetVoiceIndicatorTextureId(Textures *textures, bool speaking)
+	int GetVoiceIndicatorTextureId(Textures *textures, VoiceIndicatorState state)
 	{
-		static int s_voiceSpeakingTextureId = -1;
-		static int s_voiceNotSpeakingTextureId = -1;
-
-		int &textureId = speaking ? s_voiceSpeakingTextureId : s_voiceNotSpeakingTextureId;
+		static int s_voiceTextureIds[3] = { -1, -1, -1 };
+		int stateIndex = static_cast<int>(state);
+		if (stateIndex < 0 || stateIndex > 2)
+		{
+			return -1;
+		}
+		int &textureId = s_voiceTextureIds[stateIndex];
 		if (textureId >= 0)
 		{
 			return textureId;
 		}
 
-		BufferedImage *image = LoadVoiceIndicatorImage(speaking);
+		BufferedImage *image = LoadVoiceIndicatorImage(state);
 		if (image == nullptr)
 		{
 			return -1;
@@ -547,7 +569,12 @@ void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, d
 	// Voice chat indicator
 	if (player != nullptr)
 	{
-		const bool isSpeaking = VoiceChatManager::getInstance().isEntitySpeaking(player->entityId);
+		VoiceChatManager &vcm = VoiceChatManager::getInstance();
+		const bool isSpeaking = vcm.isEntitySpeaking(player->entityId);
+		const bool isLocalMuted = (dynamic_cast<LocalPlayer *>(player.get()) != nullptr) && vcm.isLocalMuted();
+		const VoiceIndicatorState state = isLocalMuted
+			? VOICE_INDICATOR_MUTED
+			: (isSpeaking ? VOICE_INDICATOR_SPEAKING : VOICE_INDICATOR_NOT_SPEAKING);
 		glPushMatrix();
 		// Position above the head (slightly higher than the name tag)
 		glTranslatef(static_cast<float>(x), static_cast<float>(y) + player->bbHeight + 0.75f, static_cast<float>(z));
@@ -565,7 +592,7 @@ void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, d
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glColor4f(1, 1, 1, 1);
 		
-		const int voiceIndicatorTextureId = GetVoiceIndicatorTextureId(entityRenderDispatcher->textures, isSpeaking);
+		const int voiceIndicatorTextureId = GetVoiceIndicatorTextureId(entityRenderDispatcher->textures, state);
 		if (voiceIndicatorTextureId < 0)
 		{
 			glPopMatrix();

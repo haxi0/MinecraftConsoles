@@ -9,8 +9,13 @@
 #include "GameMode.h"
 #include "Lighting.h"
 #include "ChatScreen.h"
+#include "VoiceChatManager.h"
+#include "BufferedImage.h"
+#include "Tesselator.h"
 #include "MultiPlayerLevel.h"
 #include "..\Minecraft.World\JavaMath.h"
+#include "..\Minecraft.World\File.h"
+#include "..\Minecraft.World\InputOutputStream.h"
 #include "..\Minecraft.World\net.minecraft.world.entity.player.h"
 #include "..\Minecraft.World\net.minecraft.world.effect.h"
 #include "..\Minecraft.World\net.minecraft.world.food.h"
@@ -41,6 +46,110 @@ ResourceLocation Gui::PUMPKIN_BLUR_LOCATION = ResourceLocation(TN__BLUR__MISC_PU
 float Gui::currentGuiBlendFactor = 1.0f;	// 4J added
 float Gui::currentGuiScaleFactor = 1.0f;	// 4J added
 ItemRenderer *Gui::itemRenderer = new ItemRenderer();
+
+namespace
+{
+	enum VoiceHudIconState
+	{
+		VOICE_HUD_ICON_NOT_SPEAKING = 0,
+		VOICE_HUD_ICON_SPEAKING = 1,
+		VOICE_HUD_ICON_MUTED = 2
+	};
+
+	static const int VOICE_HUD_ICON_WIDTH = 24;
+	static const int VOICE_HUD_ICON_HEIGHT = 16;
+
+	BufferedImage *LoadVoiceHudIconImage(VoiceHudIconState state)
+	{
+		const wchar_t *filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		if (state == VOICE_HUD_ICON_SPEAKING)
+		{
+			filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceSpeaking.png";
+		}
+		else if (state == VOICE_HUD_ICON_MUTED)
+		{
+			filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceMuted.png";
+		}
+
+		File file(filePath);
+		if (file.exists())
+		{
+			byteArray imageBytes(static_cast<unsigned int>(file.length()));
+			FileInputStream stream(file);
+			const int bytesRead = stream.read(imageBytes);
+			stream.close();
+			if (bytesRead > 0)
+			{
+				imageBytes.length = static_cast<unsigned int>(bytesRead);
+				BufferedImage *image = new BufferedImage(imageBytes.data, imageBytes.length);
+				delete[] imageBytes.data;
+				return image;
+			}
+			delete[] imageBytes.data;
+		}
+
+		const wchar_t *archivePath = L"Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		if (state == VOICE_HUD_ICON_SPEAKING)
+		{
+			archivePath = L"Graphics\\InGameInfo\\voiceSpeaking.png";
+		}
+		else if (state == VOICE_HUD_ICON_MUTED)
+		{
+			archivePath = L"Graphics\\InGameInfo\\voiceMuted.png";
+		}
+
+		if (!app.hasArchiveFile(archivePath))
+		{
+			return nullptr;
+		}
+
+		byteArray imageBytes = app.getArchiveFile(archivePath);
+		if (imageBytes.data == nullptr || imageBytes.length == 0)
+		{
+			return nullptr;
+		}
+
+		BufferedImage *image = new BufferedImage(imageBytes.data, imageBytes.length);
+		delete[] imageBytes.data;
+		return image;
+	}
+
+	int GetVoiceHudIconTextureId(Textures *textures, VoiceHudIconState state)
+	{
+		static int s_voiceHudTextureIds[3] = { -1, -1, -1 };
+		const int stateIndex = static_cast<int>(state);
+		if (stateIndex < 0 || stateIndex > 2)
+		{
+			return -1;
+		}
+
+		int &textureId = s_voiceHudTextureIds[stateIndex];
+		if (textureId >= 0)
+		{
+			return textureId;
+		}
+
+		BufferedImage *image = LoadVoiceHudIconImage(state);
+		if (image == nullptr)
+		{
+			return -1;
+		}
+
+		textureId = textures->getTexture(image, C4JRender::TEXTURE_FORMAT_RxGyBzAw, false);
+		return textureId;
+	}
+
+	void DrawVoiceHudIcon(int x, int y)
+	{
+		Tesselator *t = Tesselator::getInstance();
+		t->begin();
+		t->vertexUV(static_cast<float>(x), static_cast<float>(y + VOICE_HUD_ICON_HEIGHT), 0.0f, 0.0f, 1.0f);
+		t->vertexUV(static_cast<float>(x + VOICE_HUD_ICON_WIDTH), static_cast<float>(y + VOICE_HUD_ICON_HEIGHT), 0.0f, 1.0f, 1.0f);
+		t->vertexUV(static_cast<float>(x + VOICE_HUD_ICON_WIDTH), static_cast<float>(y), 0.0f, 1.0f, 0.0f);
+		t->vertexUV(static_cast<float>(x), static_cast<float>(y), 0.0f, 0.0f, 0.0f);
+		t->end();
+	}
+}
 
 Gui::Gui(Minecraft *minecraft)
 {
@@ -757,6 +866,43 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 				glPopMatrix();
 				Lighting::turnOff();
 				glDisable(GL_RESCALE_NORMAL);
+			}
+		}
+
+		if (bDisplayGui)
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			VoiceHudIconState iconState = VOICE_HUD_ICON_NOT_SPEAKING;
+			if (vcm.isLocalMuted())
+			{
+				iconState = VOICE_HUD_ICON_MUTED;
+			}
+			else if (minecraft->player != nullptr && vcm.isEntitySpeaking(minecraft->player->entityId))
+			{
+				iconState = VOICE_HUD_ICON_SPEAKING;
+			}
+
+			const int iconTextureId = GetVoiceHudIconTextureId(minecraft->textures, iconState);
+			if (iconTextureId >= 0)
+			{
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+				minecraft->textures->bind(iconTextureId);
+
+				int x;
+				int y;
+				if (bTwoPlayerSplitscreen)
+				{
+					x = iWidthOffset + screenWidth / 2 - VOICE_HUD_ICON_WIDTH / 2;
+					y = iHeightOffset + screenHeight - iSafezoneYHalf - iTooltipsYOffset - VOICE_HUD_ICON_HEIGHT - 24;
+				}
+				else
+				{
+					x = screenWidth / 2 - VOICE_HUD_ICON_WIDTH / 2;
+					y = screenHeight - iSafezoneYHalf - iTooltipsYOffset - VOICE_HUD_ICON_HEIGHT - 24;
+				}
+				DrawVoiceHudIcon(x, y);
 			}
 		}
 	}

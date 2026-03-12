@@ -74,11 +74,17 @@ public:
 	void setVoiceActivationGainPercent(int percent);
 	int getVoiceActivationGainPercent() const { return m_voiceActivationGainPercent; }
 
+	// Local microphone mute controls
+	void setLocalMuted(bool muted);
+	void toggleLocalMuted();
+	bool isLocalMuted() const { return m_localMuted; }
+
 	bool isInitialized() const { return m_initialized; }
 
 	// Speaking state tracking for rendering indicators
 	void markSpeaking(int entityId);
 	bool isEntitySpeaking(int entityId);
+	void clearSpeaking(int entityId);
 	void tickSpeakingState();
 
 private:
@@ -113,6 +119,7 @@ private:
 	int m_pushToTalkHoldFrames;
 	float m_captureFilterLastInput;
 	float m_captureFilterLastOutput;
+	bool m_localMuted;
 
 	// Capture buffer (ring buffer for PCM data captured from mic)
 	static const int CAPTURE_BUFFER_SIZE = 96000; // 2 seconds at 48kHz mono

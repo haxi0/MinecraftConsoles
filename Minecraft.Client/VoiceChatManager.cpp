@@ -128,6 +128,7 @@ VoiceChatManager::VoiceChatManager()
 	, m_pushToTalkHoldFrames(0)
 	, m_captureFilterLastInput(0.0f)
 	, m_captureFilterLastOutput(0.0f)
+	, m_localMuted(false)
 {
 	memset(m_captureBuffer, 0, sizeof(m_captureBuffer));
 	InitializeCriticalSection(&m_captureLock);
@@ -605,6 +606,11 @@ void VoiceChatManager::tick(Minecraft *minecraft)
 			shouldSend = m_voiceActivationHoldFrames > 0;
 		}
 
+		if (m_localMuted)
+		{
+			shouldSend = false;
+		}
+
 		if (shouldSend)
 		{
 			// Mark our local player as speaking for the indicator
@@ -626,6 +632,11 @@ void VoiceChatManager::tick(Minecraft *minecraft)
 	}
 
 	LeaveCriticalSection(&m_captureLock);
+
+	if (m_localMuted)
+	{
+		clearSpeaking(minecraft->player->entityId);
+	}
 
 	// Cleanup stale remote streams (no data for >2 seconds)
 	int64_t now = System::currentTimeMillis();
@@ -726,6 +737,13 @@ bool VoiceChatManager::isEntitySpeaking(int entityId)
 	return speaking;
 }
 
+void VoiceChatManager::clearSpeaking(int entityId)
+{
+	EnterCriticalSection(&m_speakingLock);
+	m_speakingEntities.erase(entityId);
+	LeaveCriticalSection(&m_speakingLock);
+}
+
 void VoiceChatManager::tickSpeakingState()
 {
 	EnterCriticalSection(&m_speakingLock);
@@ -763,4 +781,27 @@ void VoiceChatManager::setVoiceActivationGainPercent(int percent)
 	if (percent < MIN_VOICE_ACTIVATION_GAIN_PERCENT) percent = MIN_VOICE_ACTIVATION_GAIN_PERCENT;
 	if (percent > MAX_VOICE_ACTIVATION_GAIN_PERCENT) percent = MAX_VOICE_ACTIVATION_GAIN_PERCENT;
 	m_voiceActivationGainPercent = percent;
+}
+
+void VoiceChatManager::setLocalMuted(bool muted)
+{
+	if (m_localMuted == muted)
+	{
+		return;
+	}
+
+	m_localMuted = muted;
+	if (m_localMuted)
+	{
+		m_isPushToTalkActive = false;
+		m_pushToTalkHoldFrames = 0;
+		m_voiceActivationHoldFrames = 0;
+	}
+
+	app.DebugPrintf("VoiceChat: Local mic %s\n", m_localMuted ? "muted" : "unmuted");
+}
+
+void VoiceChatManager::toggleLocalMuted()
+{
+	setLocalMuted(!m_localMuted);
 }
