@@ -37,6 +37,7 @@ private:
 	void handleVoiceSliderMove(int controlId, int value);
 	void enforceVoiceModeSwitch(int preferredControl);
 	void applyVoiceModeFromCheckboxes();
+	void syncVoiceModeCheckboxesFromManager();
 	void refreshVoiceDeviceCheckboxLabel();
 	void refreshVoiceDeviceSlider();
 public:

@@ -265,10 +265,17 @@ void UIScene_SettingsOptionsMenu::enforceVoiceModeSwitch(int preferredControl)
 			proximity = false;
 			pushToTalk = true;
 		}
-		else
+		else if (preferredControl == eControl_ViewBob)
 		{
 			proximity = true;
 			pushToTalk = false;
+		}
+		else
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			const bool preferPushToTalk = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK;
+			proximity = !preferPushToTalk;
+			pushToTalk = preferPushToTalk;
 		}
 	}
 
@@ -333,6 +340,10 @@ void UIScene_SettingsOptionsMenu::placeVoiceBackButtonAtBottom()
 void UIScene_SettingsOptionsMenu::tick()
 {
 	UIScene::tick();
+	if (m_bVoiceChatMode)
+	{
+		syncVoiceModeCheckboxesFromManager();
+	}
 }
 
 wstring UIScene_SettingsOptionsMenu::getMoviePath()
@@ -440,14 +451,24 @@ void UIScene_SettingsOptionsMenu::handleCheckboxToggled(F64 controlId, bool sele
 	switch (static_cast<int>(controlId))
 	{
 	case eControl_ViewBob:
-		m_checkboxViewBob.setChecked(selected);
-		enforceVoiceModeSwitch(eControl_ViewBob);
-		setGameSettings();
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			vcm.setProximityEnabled(true);
+			vcm.setVoiceInputMode(selected
+				? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
+				: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
+			syncVoiceModeCheckboxesFromManager();
+		}
 		break;
 	case eControl_ShowHints:
-		m_checkboxShowHints.setChecked(selected);
-		enforceVoiceModeSwitch(eControl_ShowHints);
-		setGameSettings();
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			vcm.setProximityEnabled(true);
+			vcm.setVoiceInputMode(selected
+				? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
+				: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+			syncVoiceModeCheckboxesFromManager();
+		}
 		break;
 	}
 }
@@ -523,12 +544,17 @@ void UIScene_SettingsOptionsMenu::setGameSettings()
 {
 	if (m_bVoiceChatMode)
 	{
-		enforceVoiceModeSwitch(-1);
 		VoiceChatManager &vcm = VoiceChatManager::getInstance();
+		const bool gainActivation = m_checkboxViewBob.IsChecked();
+		const bool pushToTalk = m_checkboxShowHints.IsChecked();
+		if (gainActivation != pushToTalk)
+		{
+			vcm.setVoiceInputMode(pushToTalk
+				? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
+				: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+		}
 		vcm.setProximityEnabled(true);
-		vcm.setVoiceInputMode(m_checkboxShowHints.IsChecked()
-			? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
-			: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+		syncVoiceModeCheckboxesFromManager();
 		return;
 	}
 
@@ -547,4 +573,25 @@ void UIScene_SettingsOptionsMenu::setGameSettings()
 
 	// 4J-PB - don't action changes here or we might write to the profile on backing out here and then get a change in the settings all, and write again on backing out there
 	//app.CheckGameSettingsChanged(true,pInputData->UserIndex);
+}
+
+void UIScene_SettingsOptionsMenu::syncVoiceModeCheckboxesFromManager()
+{
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	VoiceChatManager &vcm = VoiceChatManager::getInstance();
+	const bool pushToTalk = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK;
+	const bool gainActivation = !pushToTalk;
+
+	if (m_checkboxViewBob.IsChecked() != gainActivation)
+	{
+		m_checkboxViewBob.setChecked(gainActivation);
+	}
+	if (m_checkboxShowHints.IsChecked() != pushToTalk)
+	{
+		m_checkboxShowHints.setChecked(pushToTalk);
+	}
 }

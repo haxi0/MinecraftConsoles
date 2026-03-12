@@ -73,6 +73,7 @@ protected:
 	void setupStandardOptionsMenu();
 	void setVoiceDifficultyLabel();
 	void enforceVoiceModeSwitch(int preferredControl);
+	void syncVoiceModeCheckboxesFromManager();
 	void placeVoiceBackButtonAtBottom();
 
 };

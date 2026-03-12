@@ -180,7 +180,6 @@ void UIScene_SettingsGraphicsMenu::initVoiceChatSliders()
 	m_checkboxBedrockFog.init(UIString(L"Push-To-Talk"), eControl_BedrockFog, pushToTalkEnabled);
 	m_checkboxCustomSkinAnim.init(UIString(L"Select Input Device"), eControl_CustomSkinAnim, false);
 	refreshVoiceDeviceCheckboxLabel();
-	enforceVoiceModeSwitch(-1);
 	applyVoiceModeFromCheckboxes();
 
 	WCHAR tempString[256];
@@ -215,6 +214,10 @@ UIScene_SettingsGraphicsMenu::~UIScene_SettingsGraphicsMenu()
 void UIScene_SettingsGraphicsMenu::tick()
 {
 	UIScene::tick();
+	if (m_bVoiceChatMode)
+	{
+		syncVoiceModeCheckboxesFromManager();
+	}
 }
 
 wstring UIScene_SettingsGraphicsMenu::getMoviePath()
@@ -362,19 +365,30 @@ void UIScene_SettingsGraphicsMenu::handleCheckboxToggled(F64 controlId, bool sel
 	switch (static_cast<int>(controlId))
 	{
 	case eControl_Clouds:
-		m_checkboxClouds.setChecked(selected);
-		enforceVoiceModeSwitch(eControl_Clouds);
-		applyVoiceModeFromCheckboxes();
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			vcm.setProximityEnabled(true);
+			vcm.setVoiceInputMode(selected
+				? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
+				: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
+			syncVoiceModeCheckboxesFromManager();
+		}
 		break;
 
 	case eControl_BedrockFog:
-		m_checkboxBedrockFog.setChecked(selected);
-		enforceVoiceModeSwitch(eControl_BedrockFog);
-		applyVoiceModeFromCheckboxes();
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			vcm.setProximityEnabled(true);
+			vcm.setVoiceInputMode(selected
+				? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
+				: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+			syncVoiceModeCheckboxesFromManager();
+		}
 		break;
 
 	case eControl_CustomSkinAnim:
 		m_checkboxCustomSkinAnim.setChecked(selected);
+		syncVoiceModeCheckboxesFromManager();
 		refreshVoiceDeviceCheckboxLabel();
 		refreshVoiceDeviceSlider();
 		break;
@@ -446,10 +460,17 @@ void UIScene_SettingsGraphicsMenu::enforceVoiceModeSwitch(int preferredControl)
 			proximity = false;
 			pushToTalk = true;
 		}
-		else
+		else if (preferredControl == eControl_Clouds)
 		{
 			proximity = true;
 			pushToTalk = false;
+		}
+		else
+		{
+			VoiceChatManager &vcm = VoiceChatManager::getInstance();
+			const bool preferPushToTalk = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK;
+			proximity = !preferPushToTalk;
+			pushToTalk = preferPushToTalk;
 		}
 	}
 
@@ -460,11 +481,39 @@ void UIScene_SettingsGraphicsMenu::enforceVoiceModeSwitch(int preferredControl)
 void UIScene_SettingsGraphicsMenu::applyVoiceModeFromCheckboxes()
 {
 	VoiceChatManager &vcm = VoiceChatManager::getInstance();
-	enforceVoiceModeSwitch(-1);
+
+	const bool gainActivation = m_checkboxClouds.IsChecked();
+	const bool pushToTalk = m_checkboxBedrockFog.IsChecked();
+	if (gainActivation != pushToTalk)
+	{
+		vcm.setVoiceInputMode(pushToTalk
+			? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
+			: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+	}
+
 	vcm.setProximityEnabled(true);
-	vcm.setVoiceInputMode(m_checkboxBedrockFog.IsChecked()
-		? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
-		: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
+	syncVoiceModeCheckboxesFromManager();
+}
+
+void UIScene_SettingsGraphicsMenu::syncVoiceModeCheckboxesFromManager()
+{
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	VoiceChatManager &vcm = VoiceChatManager::getInstance();
+	const bool pushToTalk = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK;
+	const bool gainActivation = !pushToTalk;
+
+	if (m_checkboxClouds.IsChecked() != gainActivation)
+	{
+		m_checkboxClouds.setChecked(gainActivation);
+	}
+	if (m_checkboxBedrockFog.IsChecked() != pushToTalk)
+	{
+		m_checkboxBedrockFog.setChecked(pushToTalk);
+	}
 }
 
 void UIScene_SettingsGraphicsMenu::refreshVoiceDeviceCheckboxLabel()
