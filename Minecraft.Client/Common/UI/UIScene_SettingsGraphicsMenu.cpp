@@ -62,6 +62,14 @@ namespace
 		IggyValueSetF64RS(control.getIggyValuePath(), yName, nullptr, static_cast<F64>(y));
 		control.UpdateControl();
 	}
+
+	static void SetControlHeight(UIScene &scene, UIControl &control, int height)
+	{
+		IggyName heightName = scene.registerFastName(L"height");
+		IggyValueSetF64RS(control.getIggyValuePath(), heightName, nullptr, static_cast<F64>(height));
+		control.UpdateControl();
+	}
+
 }
 
 int UIScene_SettingsGraphicsMenu::LevelToDistance(int level)
@@ -82,7 +90,9 @@ int UIScene_SettingsGraphicsMenu::DistanceToLevel(int dist)
     return 3;
 }
 
-UIScene_SettingsGraphicsMenu::UIScene_SettingsGraphicsMenu(int iPad, void *initData, UILayer *parentLayer) : UIScene(iPad, parentLayer)
+UIScene_SettingsGraphicsMenu::UIScene_SettingsGraphicsMenu(int iPad, void *initData, UILayer *parentLayer)
+	: UIScene(iPad, parentLayer)
+	, m_bVoiceChatMode(false)
 {
 	// Setup all the Iggy references we need for this scene
 	initialiseMovie();
@@ -164,7 +174,6 @@ void UIScene_SettingsGraphicsMenu::initVoiceChatSliders()
 	const bool proximityEnabled = vcm.isProximityEnabled();
 	m_checkboxClouds.init(UIString(L"Proximity"), eControl_Clouds, proximityEnabled);
 	m_checkboxBedrockFog.init(UIString(L"Voice Activate"), eControl_BedrockFog, !proximityEnabled);
-	removeControl(&m_checkboxCustomSkinAnim, false);
 
 	enforceVoiceModeSwitch(-1);
 
@@ -207,35 +216,81 @@ void UIScene_SettingsGraphicsMenu::initVoiceChatSliders()
 	m_sliderInterfaceOpacity.setAllPossibleLabels(playbackCount, playbackLabels);
 	m_sliderInterfaceOpacity.init(playbackLabels[playbackIndex], eControl_InterfaceOpacity, 0, playbackCount - 1, playbackIndex);
 
-	// Force a stable stacked layout in voice mode to avoid slider overlap across skins.
-	m_checkboxClouds.UpdateControl();
+	doHorizontalResizeCheck();
+
+	// Collapse the unused third checkbox row once, without any persistent layout workaround.
 	m_checkboxBedrockFog.UpdateControl();
+	m_checkboxCustomSkinAnim.UpdateControl();
 	m_sliderRenderDistance.UpdateControl();
 	m_sliderGamma.UpdateControl();
 	m_sliderFOV.UpdateControl();
 	m_sliderInterfaceOpacity.UpdateControl();
 
-	const int rowSpacing = 8;
-	const int checkBottom = m_checkboxBedrockFog.getYPos() + m_checkboxBedrockFog.getHeight();
-	int sliderY = m_sliderRenderDistance.getYPos();
-	const int minSliderY = checkBottom + rowSpacing;
-	if (sliderY < minSliderY)
+	int collapseAmount = m_checkboxCustomSkinAnim.getYPos() - m_checkboxBedrockFog.getYPos();
+	if (collapseAmount > 0 && collapseAmount < 128)
 	{
-		sliderY = minSliderY;
+		SetControlY(*this, m_sliderRenderDistance, m_sliderRenderDistance.getYPos() - collapseAmount);
+		SetControlY(*this, m_sliderGamma, m_sliderGamma.getYPos() - collapseAmount);
+		SetControlY(*this, m_sliderFOV, m_sliderFOV.getYPos() - collapseAmount);
+		SetControlY(*this, m_sliderInterfaceOpacity, m_sliderInterfaceOpacity.getYPos() - collapseAmount);
 	}
-	SetControlY(*this, m_sliderRenderDistance, sliderY);
-	sliderY += m_sliderRenderDistance.getHeight() + rowSpacing;
-	SetControlY(*this, m_sliderGamma, sliderY);
-	sliderY += m_sliderGamma.getHeight() + rowSpacing;
-	SetControlY(*this, m_sliderFOV, sliderY);
-	sliderY += m_sliderFOV.getHeight() + rowSpacing;
-	SetControlY(*this, m_sliderInterfaceOpacity, sliderY);
 
-	doHorizontalResizeCheck();
+	// Match the panel height to the collapsed content once.
+	m_sliderInterfaceOpacity.UpdateControl();
+	IggyValuePath *root = IggyPlayerRootPath(getMovie());
+	static const char *kPanelCandidates[] =
+	{
+		"MainPanel",
+		"Panel",
+		"BackgroundPanel",
+		"Background",
+		"Dialog",
+		"Window"
+	};
+	const int bottomPadding = 16;
+	for (int i = 0; i < static_cast<int>(sizeof(kPanelCandidates) / sizeof(kPanelCandidates[0])); ++i)
+	{
+		UIControl panel;
+		if (!panel.setupControl(this, root, kPanelCandidates[i]))
+		{
+			continue;
+		}
+
+		panel.UpdateControl();
+		if (panel.getHeight() <= 0)
+		{
+			continue;
+		}
+
+		const int desiredHeight = (m_sliderInterfaceOpacity.getYPos() + m_sliderInterfaceOpacity.getHeight() + bottomPadding) - panel.getYPos();
+		if (desiredHeight > 0)
+		{
+			SetControlHeight(*this, panel, desiredHeight);
+		}
+		break;
+	}
+
+	// Hide the unused checkbox without movie recenter/reflow.
+	m_checkboxCustomSkinAnim.setVisible(false);
+	m_checkboxCustomSkinAnim.setHidden(true);
 }
 
 UIScene_SettingsGraphicsMenu::~UIScene_SettingsGraphicsMenu()
 {
+}
+
+void UIScene_SettingsGraphicsMenu::tick()
+{
+	UIScene::tick();
+
+	if (!m_bVoiceChatMode)
+	{
+		return;
+	}
+
+	// Keep mode switches mutually exclusive even if UI events arrive out-of-order.
+	enforceVoiceModeSwitch(-1);
+	applyVoiceModeFromCheckboxes();
 }
 
 wstring UIScene_SettingsGraphicsMenu::getMoviePath()

@@ -42,6 +42,7 @@ public:
 	virtual ~UIScene_SettingsGraphicsMenu();
 
 	virtual EUIScene getSceneType() { return eUIScene_SettingsGraphicsMenu;}
+	virtual void tick();
 	
 	virtual void updateTooltips();
 	virtual void updateComponents();
