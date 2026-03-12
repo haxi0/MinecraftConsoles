@@ -12,6 +12,7 @@ private:
 public:
 	ResourceLocation()
 	{
+		m_texture = textureNameArray();
 		m_preloaded = false;
 		m_path = L"";
 	}
@@ -25,6 +26,7 @@ public:
 
 	ResourceLocation(wstring path)
 	{
+		m_texture = textureNameArray();
 		m_path = path;
 		m_preloaded = false;
 	}
@@ -41,7 +43,7 @@ public:
 
 	~ResourceLocation()
 	{
-		delete m_texture.data;
+		delete[] m_texture.data;
 	}
 
 	_TEXTURE_NAME getTexture()

@@ -246,7 +246,6 @@ const wchar_t *Textures::preLoaded[TN_COUNT] =
 	L"/AH_0008",
 	L"/AH_0009",*/
 
-	L"gui/speaker",
 	L"gui/items",
 	L"terrain",
 };

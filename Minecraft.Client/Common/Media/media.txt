@@ -3,3 +3,5 @@ HTMLColours.col
 Graphics\SaveChest.png
 Graphics\MinecraftIcon.png
 Graphics\TexturePackIcon.png
+Graphics\InGameInfo\voiceSpeaking.png
+Graphics\InGameInfo\voiceNotSpeaking.png

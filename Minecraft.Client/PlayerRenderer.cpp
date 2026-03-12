@@ -8,6 +8,9 @@
 #include "LocalPlayer.h"
 #include "MultiPlayerLocalPlayer.h"
 #include "entityRenderDispatcher.h"
+#include "BufferedImage.h"
+#include "..\Minecraft.World\File.h"
+#include "..\Minecraft.World\InputOutputStream.h"
 #include "..\Minecraft.World\net.minecraft.world.entity.h"
 #include "..\Minecraft.World\net.minecraft.world.entity.player.h"
 #include "..\Minecraft.World\net.minecraft.world.item.h"
@@ -52,6 +55,74 @@ static unsigned int nametagColorForIndex(int index)
 	}
 #endif
 	return 0xFF000000; //Fallback if exceeds 256 somehow
+}
+
+namespace
+{
+	static const float VOICE_ICON_HALF_HEIGHT = 8.0f;
+	static const float VOICE_ICON_HALF_WIDTH = VOICE_ICON_HALF_HEIGHT * (60.0f / 40.0f);
+
+	BufferedImage *LoadVoiceIndicatorImage(bool speaking)
+	{
+		const wchar_t *filePath = speaking
+			? L"Common\\Media\\Graphics\\InGameInfo\\voiceSpeaking.png"
+			: L"Common\\Media\\Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		File file(filePath);
+		if (file.exists())
+		{
+			byteArray imageBytes(static_cast<unsigned int>(file.length()));
+			FileInputStream stream(file);
+			const int bytesRead = stream.read(imageBytes);
+			stream.close();
+			if (bytesRead > 0)
+			{
+				imageBytes.length = static_cast<unsigned int>(bytesRead);
+				BufferedImage *image = new BufferedImage(imageBytes.data, imageBytes.length);
+				delete[] imageBytes.data;
+				return image;
+			}
+			delete[] imageBytes.data;
+		}
+
+		const wchar_t *archivePath = speaking
+			? L"Graphics\\InGameInfo\\voiceSpeaking.png"
+			: L"Graphics\\InGameInfo\\voiceNotSpeaking.png";
+		if (!app.hasArchiveFile(archivePath))
+		{
+			return nullptr;
+		}
+
+		byteArray imageBytes = app.getArchiveFile(archivePath);
+		if (imageBytes.data == nullptr || imageBytes.length == 0)
+		{
+			return nullptr;
+		}
+
+		BufferedImage *image = new BufferedImage(imageBytes.data, imageBytes.length);
+		delete[] imageBytes.data;
+		return image;
+	}
+
+	int GetVoiceIndicatorTextureId(Textures *textures, bool speaking)
+	{
+		static int s_voiceSpeakingTextureId = -1;
+		static int s_voiceNotSpeakingTextureId = -1;
+
+		int &textureId = speaking ? s_voiceSpeakingTextureId : s_voiceNotSpeakingTextureId;
+		if (textureId >= 0)
+		{
+			return textureId;
+		}
+
+		BufferedImage *image = LoadVoiceIndicatorImage(speaking);
+		if (image == nullptr)
+		{
+			return -1;
+		}
+
+		textureId = textures->getTexture(image, C4JRender::TEXTURE_FORMAT_RxGyBzAw, false);
+		return textureId;
+	}
 }
 
 ResourceLocation PlayerRenderer::DEFAULT_LOCATION = ResourceLocation(TN_MOB_CHAR);
@@ -473,9 +544,10 @@ void PlayerRenderer::additionalRendering(shared_ptr<LivingEntity> _mob, float a)
 
 void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, double y, double z, const wstring &msg, float scale, double dist)
 {
-	// Voice chat speaking indicator
-	if (player != nullptr && VoiceChatManager::getInstance().isEntitySpeaking(player->entityId))
+	// Voice chat indicator
+	if (player != nullptr)
 	{
+		const bool isSpeaking = VoiceChatManager::getInstance().isEntitySpeaking(player->entityId);
 		glPushMatrix();
 		// Position above the head (slightly higher than the name tag)
 		glTranslatef(static_cast<float>(x), static_cast<float>(y) + player->bbHeight + 0.75f, static_cast<float>(z));
@@ -493,16 +565,22 @@ void PlayerRenderer::renderNameTags(shared_ptr<LivingEntity> player, double x, d
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glColor4f(1, 1, 1, 1);
 		
-		ResourceLocation speakerLoc(TN_GUI_SPEAKER);
-		bindTexture(&speakerLoc);
+		const int voiceIndicatorTextureId = GetVoiceIndicatorTextureId(entityRenderDispatcher->textures, isSpeaking);
+		if (voiceIndicatorTextureId < 0)
+		{
+			glPopMatrix();
+			LivingEntityRenderer::renderNameTags(player, x, y, z, msg, scale, dist);
+			return;
+		}
+
+		entityRenderDispatcher->textures->bind(voiceIndicatorTextureId);
 		
 		Tesselator* t = Tesselator::getInstance();
 		t->begin();
-		// 16x16 icon coordinates
-		t->vertexUV(-8, -8, 0, 0, 0);
-		t->vertexUV(-8,  8, 0, 0, 1);
-		t->vertexUV( 8,  8, 0, 1, 1);
-		t->vertexUV( 8, -8, 0, 1, 0);
+		t->vertexUV(-VOICE_ICON_HALF_WIDTH, -VOICE_ICON_HALF_HEIGHT, 0, 0, 0);
+		t->vertexUV(-VOICE_ICON_HALF_WIDTH,  VOICE_ICON_HALF_HEIGHT, 0, 0, 1);
+		t->vertexUV( VOICE_ICON_HALF_WIDTH,  VOICE_ICON_HALF_HEIGHT, 0, 1, 1);
+		t->vertexUV( VOICE_ICON_HALF_WIDTH, -VOICE_ICON_HALF_HEIGHT, 0, 1, 0);
 		t->end();
 		
 		glPopMatrix();
