@@ -68,10 +68,10 @@ void UIScene_SettingsOptionsMenu::setupVoiceChatMenu()
 	m_bNotInGame = (Minecraft::GetInstance()->level == nullptr);
 	m_bMashUpWorldsUnhideOption = false;
 
-	const bool proximityEnabled = vcm.isProximityEnabled();
-	const bool voiceActivationEnabled = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION;
-	m_checkboxViewBob.init(UIString(L"Proximity"), eControl_ViewBob, proximityEnabled);
-	m_checkboxShowHints.init(UIString(L"Voice Activation"), eControl_ShowHints, voiceActivationEnabled);
+	const bool pushToTalkEnabled = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK;
+	const bool gainActivationEnabled = !pushToTalkEnabled;
+	m_checkboxViewBob.init(UIString(L"Gain Activation"), eControl_ViewBob, gainActivationEnabled);
+	m_checkboxShowHints.init(UIString(L"Push-To-Talk"), eControl_ShowHints, pushToTalkEnabled);
 
 	removeControl(&m_checkboxShowTooltips, true);
 	removeControl(&m_checkboxInGameGamertags, true);
@@ -256,15 +256,24 @@ void UIScene_SettingsOptionsMenu::enforceVoiceModeSwitch(int preferredControl)
 	}
 
 	bool proximity = m_checkboxViewBob.IsChecked();
-	bool voiceActivate = m_checkboxShowHints.IsChecked();
+	bool pushToTalk = m_checkboxShowHints.IsChecked();
 
-	if (voiceActivate && !proximity)
+	if (proximity == pushToTalk)
 	{
-		proximity = true;
+		if (preferredControl == eControl_ShowHints)
+		{
+			proximity = false;
+			pushToTalk = true;
+		}
+		else
+		{
+			proximity = true;
+			pushToTalk = false;
+		}
 	}
 
 	m_checkboxViewBob.setChecked(proximity);
-	m_checkboxShowHints.setChecked(voiceActivate);
+	m_checkboxShowHints.setChecked(pushToTalk);
 }
 
 void UIScene_SettingsOptionsMenu::placeVoiceBackButtonAtBottom()
@@ -516,11 +525,10 @@ void UIScene_SettingsOptionsMenu::setGameSettings()
 	{
 		enforceVoiceModeSwitch(-1);
 		VoiceChatManager &vcm = VoiceChatManager::getInstance();
-		const bool proximityEnabled = m_checkboxViewBob.IsChecked();
-		vcm.setProximityEnabled(proximityEnabled);
+		vcm.setProximityEnabled(true);
 		vcm.setVoiceInputMode(m_checkboxShowHints.IsChecked()
-			? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
-			: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
+			? VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK
+			: VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION);
 		return;
 	}
 
