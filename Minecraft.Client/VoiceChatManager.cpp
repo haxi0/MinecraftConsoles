@@ -8,12 +8,25 @@
 #include "..\Minecraft.World\Connection.h"
 #include "..\Minecraft.World\System.h"
 #include <cstring>
+#include <cmath>
 
 // Include miniaudio
 #include "Common\Audio\miniaudio.h"
 
 namespace
 {
+	static const int MIN_VOICE_ACTIVATION_GAIN_PERCENT = 25;
+	static const int MAX_VOICE_ACTIVATION_GAIN_PERCENT = 400;
+	static const int VOICE_ACTIVATION_OPEN_PEAK = 900;
+	static const int VOICE_ACTIVATION_OPEN_RMS = 220;
+	static const int VOICE_ACTIVATION_CLOSE_PEAK = 600;
+	static const int VOICE_ACTIVATION_CLOSE_RMS = 160;
+	static const int VOICE_ACTIVATION_HOLD_FRAMES = 10;
+	static const int PUSH_TO_TALK_GATE_PEAK = 450;
+	static const int PUSH_TO_TALK_GATE_RMS = 120;
+	static const int PUSH_TO_TALK_HOLD_FRAMES = 4;
+	static const float CAPTURE_HIGHPASS_ALPHA = 0.995f;
+
 	static void RefreshDeviceLists(
 		std::vector<std::wstring> &playbackDevices,
 		std::vector<std::wstring> &captureDevices,
@@ -44,6 +57,48 @@ namespace
 		if (selectedIndex >= static_cast<int>(count)) return nullptr;
 		return &pInfos[selectedIndex].id;
 	}
+
+	static int SampleMagnitude(int sample)
+	{
+		return sample >= 0 ? sample : -sample;
+	}
+
+	static short ClampSampleToShort(int sample)
+	{
+		if (sample > 32767) return 32767;
+		if (sample < -32768) return -32768;
+		return static_cast<short>(sample);
+	}
+
+	struct VoiceFrameMetrics
+	{
+		int peak;
+		int rms;
+	};
+
+	static VoiceFrameMetrics MeasureVoiceFrame(const short *samples, int sampleCount, int gainPercent)
+	{
+		VoiceFrameMetrics metrics = { 0, 0 };
+		if (samples == nullptr || sampleCount <= 0)
+		{
+			return metrics;
+		}
+
+		long long energy = 0;
+		for (int i = 0; i < sampleCount; ++i)
+		{
+			int sample = (static_cast<int>(samples[i]) * gainPercent) / 100;
+			const int magnitude = SampleMagnitude(sample);
+			if (magnitude > metrics.peak)
+			{
+				metrics.peak = magnitude;
+			}
+			energy += static_cast<long long>(magnitude) * static_cast<long long>(magnitude);
+		}
+
+		metrics.rms = static_cast<int>(std::sqrt(static_cast<double>(energy) / static_cast<double>(sampleCount)));
+		return metrics;
+	}
 }
 
 VoiceChatManager &VoiceChatManager::getInstance()
@@ -63,12 +118,16 @@ VoiceChatManager::VoiceChatManager()
 	, m_isPushToTalkActive(false)
 	, m_voiceInputMode(VOICE_INPUT_PUSH_TO_TALK)
 	, m_proximityEnabled(true)
-	, m_voiceThreshold(300)
 	, m_selectedCaptureDevice(-1)
 	, m_selectedPlaybackDevice(-1)
 	, m_localSequence(0)
 	, m_micVolumePercent(100)
 	, m_voiceChatVolumePercent(100)
+	, m_voiceActivationGainPercent(100)
+	, m_voiceActivationHoldFrames(0)
+	, m_pushToTalkHoldFrames(0)
+	, m_captureFilterLastInput(0.0f)
+	, m_captureFilterLastOutput(0.0f)
 {
 	memset(m_captureBuffer, 0, sizeof(m_captureBuffer));
 	InitializeCriticalSection(&m_captureLock);
@@ -164,6 +223,14 @@ void VoiceChatManager::onPlaybackAudio(ma_device *pDevice, void *pOutput, const 
 void VoiceChatManager::init()
 {
 	if (m_initialized) return;
+
+	m_captureWritePos = 0;
+	m_captureReadPos = 0;
+	m_voiceActivationHoldFrames = 0;
+	m_pushToTalkHoldFrames = 0;
+	m_captureFilterLastInput = 0.0f;
+	m_captureFilterLastOutput = 0.0f;
+	memset(m_captureBuffer, 0, sizeof(m_captureBuffer));
 
 	m_audioContext = new ma_context();
 	if (ma_context_init(nullptr, 0, nullptr, m_audioContext) != MA_SUCCESS)
@@ -288,6 +355,10 @@ void VoiceChatManager::shutdown()
 	}
 	m_captureDevices.clear();
 	m_playbackDevices.clear();
+	m_voiceActivationHoldFrames = 0;
+	m_pushToTalkHoldFrames = 0;
+	m_captureFilterLastInput = 0.0f;
+	m_captureFilterLastOutput = 0.0f;
 
 	m_initialized = false;
 	app.DebugPrintf("VoiceChat: Shutdown\n");
@@ -295,7 +366,14 @@ void VoiceChatManager::shutdown()
 
 void VoiceChatManager::setVoiceInputMode(VoiceInputMode mode)
 {
+	if (m_voiceInputMode == mode)
+	{
+		return;
+	}
+
 	m_voiceInputMode = mode;
+	m_voiceActivationHoldFrames = 0;
+	m_pushToTalkHoldFrames = 0;
 	app.DebugPrintf("VoiceChat: Input mode set to %s\n", m_voiceInputMode == VOICE_INPUT_PUSH_TO_TALK ? "PTT" : "VoiceActivation");
 }
 
@@ -314,6 +392,17 @@ void VoiceChatManager::toggleVoiceInputMode()
 void VoiceChatManager::toggleProximityEnabled()
 {
 	m_proximityEnabled = !m_proximityEnabled;
+	app.DebugPrintf("VoiceChat: Proximity %s\n", m_proximityEnabled ? "enabled" : "disabled");
+}
+
+void VoiceChatManager::setProximityEnabled(bool enabled)
+{
+	if (m_proximityEnabled == enabled)
+	{
+		return;
+	}
+
+	m_proximityEnabled = enabled;
 	app.DebugPrintf("VoiceChat: Proximity %s\n", m_proximityEnabled ? "enabled" : "disabled");
 }
 
@@ -456,26 +545,64 @@ void VoiceChatManager::tick(Minecraft *minecraft)
 		{
 			int sample = m_captureBuffer[m_captureReadPos];
 			sample = (sample * m_micVolumePercent) / 100;
-			if (sample > 32767) sample = 32767;
-			if (sample < -32768) sample = -32768;
-			frameBuffer[i] = (short)sample;
+
+			// Strip DC bias and low-frequency rumble so we do not transmit a bed of hiss/hum when the mic is idle.
+			const float filteredSample =
+				static_cast<float>(sample) - m_captureFilterLastInput + (CAPTURE_HIGHPASS_ALPHA * m_captureFilterLastOutput);
+			m_captureFilterLastInput = static_cast<float>(sample);
+			m_captureFilterLastOutput = filteredSample;
+
+			frameBuffer[i] = ClampSampleToShort(static_cast<int>(filteredSample));
 			m_captureReadPos = (m_captureReadPos + 1) % CAPTURE_BUFFER_SIZE;
+		}
+
+		const VoiceFrameMetrics pushToTalkMetrics = MeasureVoiceFrame(frameBuffer, FRAMES_PER_PACKET, 100);
+		bool pushToTalkSpeechDetected =
+			pushToTalkMetrics.peak >= PUSH_TO_TALK_GATE_PEAK ||
+			pushToTalkMetrics.rms >= PUSH_TO_TALK_GATE_RMS;
+
+		if (m_isPushToTalkActive)
+		{
+			if (pushToTalkSpeechDetected)
+			{
+				m_pushToTalkHoldFrames = PUSH_TO_TALK_HOLD_FRAMES;
+			}
+			else if (m_pushToTalkHoldFrames > 0)
+			{
+				--m_pushToTalkHoldFrames;
+			}
+		}
+		else
+		{
+			m_pushToTalkHoldFrames = 0;
+		}
+
+		const VoiceFrameMetrics voiceActivationMetrics =
+			MeasureVoiceFrame(frameBuffer, FRAMES_PER_PACKET, m_voiceActivationGainPercent);
+		const bool useCloseThresholds = m_voiceActivationHoldFrames > 0;
+		const int requiredPeak = useCloseThresholds ? VOICE_ACTIVATION_CLOSE_PEAK : VOICE_ACTIVATION_OPEN_PEAK;
+		const int requiredRms = useCloseThresholds ? VOICE_ACTIVATION_CLOSE_RMS : VOICE_ACTIVATION_OPEN_RMS;
+		const bool voiceActivationDetected =
+			voiceActivationMetrics.peak >= requiredPeak ||
+			voiceActivationMetrics.rms >= requiredRms;
+
+		if (voiceActivationDetected)
+		{
+			m_voiceActivationHoldFrames = VOICE_ACTIVATION_HOLD_FRAMES;
+		}
+		else if (m_voiceActivationHoldFrames > 0)
+		{
+			--m_voiceActivationHoldFrames;
 		}
 
 		bool shouldSend = false;
 		if (m_voiceInputMode == VOICE_INPUT_PUSH_TO_TALK)
 		{
-			shouldSend = m_isPushToTalkActive;
+			shouldSend = m_isPushToTalkActive && (pushToTalkSpeechDetected || m_pushToTalkHoldFrames > 0);
 		}
 		else
 		{
-			int peak = 0;
-			for (int i = 0; i < FRAMES_PER_PACKET; ++i)
-			{
-				int sample = abs((int)frameBuffer[i]);
-				if (sample > peak) peak = sample;
-			}
-			shouldSend = peak >= m_voiceThreshold;
+			shouldSend = m_voiceActivationHoldFrames > 0;
 		}
 
 		if (shouldSend)
@@ -629,4 +756,11 @@ void VoiceChatManager::setVoiceChatVolumePercent(int percent)
 	if (percent < 0) percent = 0;
 	if (percent > 200) percent = 200;
 	m_voiceChatVolumePercent = percent;
+}
+
+void VoiceChatManager::setVoiceActivationGainPercent(int percent)
+{
+	if (percent < MIN_VOICE_ACTIVATION_GAIN_PERCENT) percent = MIN_VOICE_ACTIVATION_GAIN_PERCENT;
+	if (percent > MAX_VOICE_ACTIVATION_GAIN_PERCENT) percent = MAX_VOICE_ACTIVATION_GAIN_PERCENT;
+	m_voiceActivationGainPercent = percent;
 }

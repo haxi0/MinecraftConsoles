@@ -37,6 +37,8 @@ private:
 	void handleVoiceSliderMove(int controlId, int value);
 	void enforceVoiceModeSwitch(int preferredControl);
 	void applyVoiceModeFromCheckboxes();
+	void refreshVoiceDeviceCheckboxLabel();
+	void refreshVoiceDeviceSlider();
 public:
 	UIScene_SettingsGraphicsMenu(int iPad, void *initData, UILayer *parentLayer);
 	virtual ~UIScene_SettingsGraphicsMenu();

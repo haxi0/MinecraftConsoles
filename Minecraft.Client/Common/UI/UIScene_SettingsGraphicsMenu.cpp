@@ -13,6 +13,8 @@ namespace
     constexpr int FOV_MAX = 110;
     constexpr int FOV_SLIDER_MAX = 100;
 	static const int MAX_VOICE_VOLUME_PERCENT = 200;
+	static const int MIN_VOICE_ACTIVATION_GAIN_PERCENT = 25;
+	static const int MAX_VOICE_ACTIVATION_GAIN_PERCENT = 400;
 	static const int MAX_DEVICE_LABELS = 64;
 
 	int ClampFov(int value)
@@ -56,6 +58,7 @@ namespace
 		}
 	}
 
+	[[maybe_unused]]
 	static void SetControlY(UIScene &scene, UIControl &control, int y)
 	{
 		IggyName yName = scene.registerFastName(L"y");
@@ -63,6 +66,7 @@ namespace
 		control.UpdateControl();
 	}
 
+	[[maybe_unused]]
 	static void SetControlHeight(UIScene &scene, UIControl &control, int height)
 	{
 		IggyName heightName = scene.registerFastName(L"height");
@@ -170,12 +174,14 @@ void UIScene_SettingsGraphicsMenu::initVoiceChatSliders()
 		vcm.init();
 	}
 
-	// Reuse graphics checkboxes as voice mode switches.
 	const bool proximityEnabled = vcm.isProximityEnabled();
+	const bool voiceActivationEnabled = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION;
 	m_checkboxClouds.init(UIString(L"Proximity"), eControl_Clouds, proximityEnabled);
-	m_checkboxBedrockFog.init(UIString(L"Voice Activate"), eControl_BedrockFog, !proximityEnabled);
-
+	m_checkboxBedrockFog.init(UIString(L"Voice Activation"), eControl_BedrockFog, voiceActivationEnabled);
+	m_checkboxCustomSkinAnim.init(UIString(L"Select Input Device"), eControl_CustomSkinAnim, false);
+	refreshVoiceDeviceCheckboxLabel();
 	enforceVoiceModeSwitch(-1);
+	applyVoiceModeFromCheckboxes();
 
 	WCHAR tempString[256];
 
@@ -191,88 +197,15 @@ void UIScene_SettingsGraphicsMenu::initVoiceChatSliders()
 	swprintf(tempString, 256, L"Voice Chat Volume: %d%%", voiceVolume);
 	m_sliderGamma.init(tempString, eControl_Gamma, 0, MAX_VOICE_VOLUME_PERCENT, voiceVolume);
 
-	vector<wstring> captureNames;
-	vector<wstring> playbackNames;
-	vcm.getCaptureDeviceNames(captureNames, true);
-	vcm.getPlaybackDeviceNames(playbackNames, true);
+	int voiceActivationGain = vcm.getVoiceActivationGainPercent();
+	if (voiceActivationGain < MIN_VOICE_ACTIVATION_GAIN_PERCENT) voiceActivationGain = MIN_VOICE_ACTIVATION_GAIN_PERCENT;
+	if (voiceActivationGain > MAX_VOICE_ACTIVATION_GAIN_PERCENT) voiceActivationGain = MAX_VOICE_ACTIVATION_GAIN_PERCENT;
+	swprintf(tempString, 256, L"Voice Activation Gain: %d%%", voiceActivationGain);
+	m_sliderFOV.init(tempString, eControl_FOV, MIN_VOICE_ACTIVATION_GAIN_PERCENT, MAX_VOICE_ACTIVATION_GAIN_PERCENT, voiceActivationGain);
 
-	wchar_t captureLabels[MAX_DEVICE_LABELS][256];
-	wchar_t playbackLabels[MAX_DEVICE_LABELS][256];
-	int captureCount = 0;
-	int playbackCount = 0;
-	BuildDeviceLabels(captureNames, L"Input", captureLabels, captureCount);
-	BuildDeviceLabels(playbackNames, L"Output", playbackLabels, playbackCount);
-
-	int captureIndex = vcm.getSelectedCaptureMenuIndex();
-	int playbackIndex = vcm.getSelectedPlaybackMenuIndex();
-	if (captureIndex < 0) captureIndex = 0;
-	if (captureIndex >= captureCount) captureIndex = 0;
-	if (playbackIndex < 0) playbackIndex = 0;
-	if (playbackIndex >= playbackCount) playbackIndex = 0;
-
-	m_sliderFOV.setAllPossibleLabels(captureCount, captureLabels);
-	m_sliderFOV.init(captureLabels[captureIndex], eControl_FOV, 0, captureCount - 1, captureIndex);
-
-	m_sliderInterfaceOpacity.setAllPossibleLabels(playbackCount, playbackLabels);
-	m_sliderInterfaceOpacity.init(playbackLabels[playbackIndex], eControl_InterfaceOpacity, 0, playbackCount - 1, playbackIndex);
+	refreshVoiceDeviceSlider();
 
 	doHorizontalResizeCheck();
-
-	// Collapse the unused third checkbox row once, without any persistent layout workaround.
-	m_checkboxBedrockFog.UpdateControl();
-	m_checkboxCustomSkinAnim.UpdateControl();
-	m_sliderRenderDistance.UpdateControl();
-	m_sliderGamma.UpdateControl();
-	m_sliderFOV.UpdateControl();
-	m_sliderInterfaceOpacity.UpdateControl();
-
-	int collapseAmount = m_checkboxCustomSkinAnim.getYPos() - m_checkboxBedrockFog.getYPos();
-	if (collapseAmount > 0 && collapseAmount < 128)
-	{
-		SetControlY(*this, m_sliderRenderDistance, m_sliderRenderDistance.getYPos() - collapseAmount);
-		SetControlY(*this, m_sliderGamma, m_sliderGamma.getYPos() - collapseAmount);
-		SetControlY(*this, m_sliderFOV, m_sliderFOV.getYPos() - collapseAmount);
-		SetControlY(*this, m_sliderInterfaceOpacity, m_sliderInterfaceOpacity.getYPos() - collapseAmount);
-	}
-
-	// Match the panel height to the collapsed content once.
-	m_sliderInterfaceOpacity.UpdateControl();
-	IggyValuePath *root = IggyPlayerRootPath(getMovie());
-	static const char *kPanelCandidates[] =
-	{
-		"MainPanel",
-		"Panel",
-		"BackgroundPanel",
-		"Background",
-		"Dialog",
-		"Window"
-	};
-	const int bottomPadding = 16;
-	for (int i = 0; i < static_cast<int>(sizeof(kPanelCandidates) / sizeof(kPanelCandidates[0])); ++i)
-	{
-		UIControl panel;
-		if (!panel.setupControl(this, root, kPanelCandidates[i]))
-		{
-			continue;
-		}
-
-		panel.UpdateControl();
-		if (panel.getHeight() <= 0)
-		{
-			continue;
-		}
-
-		const int desiredHeight = (m_sliderInterfaceOpacity.getYPos() + m_sliderInterfaceOpacity.getHeight() + bottomPadding) - panel.getYPos();
-		if (desiredHeight > 0)
-		{
-			SetControlHeight(*this, panel, desiredHeight);
-		}
-		break;
-	}
-
-	// Hide the unused checkbox without movie recenter/reflow.
-	m_checkboxCustomSkinAnim.setVisible(false);
-	m_checkboxCustomSkinAnim.setHidden(true);
 }
 
 UIScene_SettingsGraphicsMenu::~UIScene_SettingsGraphicsMenu()
@@ -282,15 +215,6 @@ UIScene_SettingsGraphicsMenu::~UIScene_SettingsGraphicsMenu()
 void UIScene_SettingsGraphicsMenu::tick()
 {
 	UIScene::tick();
-
-	if (!m_bVoiceChatMode)
-	{
-		return;
-	}
-
-	// Keep mode switches mutually exclusive even if UI events arrive out-of-order.
-	enforceVoiceModeSwitch(-1);
-	applyVoiceModeFromCheckboxes();
 }
 
 wstring UIScene_SettingsGraphicsMenu::getMoviePath()
@@ -439,16 +363,20 @@ void UIScene_SettingsGraphicsMenu::handleCheckboxToggled(F64 controlId, bool sel
 	{
 	case eControl_Clouds:
 		m_checkboxClouds.setChecked(selected);
-		m_checkboxBedrockFog.setChecked(!selected);
 		enforceVoiceModeSwitch(eControl_Clouds);
 		applyVoiceModeFromCheckboxes();
 		break;
 
 	case eControl_BedrockFog:
 		m_checkboxBedrockFog.setChecked(selected);
-		m_checkboxClouds.setChecked(!selected);
 		enforceVoiceModeSwitch(eControl_BedrockFog);
 		applyVoiceModeFromCheckboxes();
+		break;
+
+	case eControl_CustomSkinAnim:
+		m_checkboxCustomSkinAnim.setChecked(selected);
+		refreshVoiceDeviceCheckboxLabel();
+		refreshVoiceDeviceSlider();
 		break;
 	}
 }
@@ -474,37 +402,35 @@ void UIScene_SettingsGraphicsMenu::handleVoiceSliderMove(int controlId, int valu
 		break;
 
 	case eControl_FOV:
-		if (vcm.selectCaptureMenuIndex(value))
-		{
-			vector<wstring> names;
-			vcm.getCaptureDeviceNames(names, true);
-			if (value >= 0 && value < static_cast<int>(names.size()))
-			{
-				swprintf(tempString, 256, L"Input: %ls", names[value].c_str());
-				m_sliderFOV.setLabel(tempString);
-			}
-		}
+		vcm.setVoiceActivationGainPercent(value);
 		m_sliderFOV.handleSliderMove(value);
+		swprintf(tempString, 256, L"Voice Activation Gain: %d%%", value);
+		m_sliderFOV.setLabel(tempString);
 		break;
 
 	case eControl_InterfaceOpacity:
-		if (vcm.selectPlaybackMenuIndex(value))
+		if (m_checkboxCustomSkinAnim.IsChecked())
 		{
-			vector<wstring> names;
-			vcm.getPlaybackDeviceNames(names, true);
-			if (value >= 0 && value < static_cast<int>(names.size()))
+			if (vcm.selectPlaybackMenuIndex(value))
 			{
-				swprintf(tempString, 256, L"Output: %ls", names[value].c_str());
-				m_sliderInterfaceOpacity.setLabel(tempString);
+				refreshVoiceDeviceSlider();
 			}
 		}
-		m_sliderInterfaceOpacity.handleSliderMove(value);
+		else
+		{
+			if (vcm.selectCaptureMenuIndex(value))
+			{
+				refreshVoiceDeviceSlider();
+			}
+		}
 		break;
 	}
 }
 
 void UIScene_SettingsGraphicsMenu::enforceVoiceModeSwitch(int preferredControl)
 {
+	(void)preferredControl;
+
 	if (!m_bVoiceChatMode)
 	{
 		return;
@@ -513,18 +439,9 @@ void UIScene_SettingsGraphicsMenu::enforceVoiceModeSwitch(int preferredControl)
 	bool proximity = m_checkboxClouds.IsChecked();
 	bool voiceActivate = m_checkboxBedrockFog.IsChecked();
 
-	if (proximity == voiceActivate)
+	if (voiceActivate && !proximity)
 	{
-		if (preferredControl == eControl_BedrockFog)
-		{
-			proximity = false;
-			voiceActivate = true;
-		}
-		else
-		{
-			proximity = true;
-			voiceActivate = false;
-		}
+		proximity = true;
 	}
 
 	m_checkboxClouds.setChecked(proximity);
@@ -537,7 +454,40 @@ void UIScene_SettingsGraphicsMenu::applyVoiceModeFromCheckboxes()
 	enforceVoiceModeSwitch(-1);
 	const bool proximityEnabled = m_checkboxClouds.IsChecked();
 	vcm.setProximityEnabled(proximityEnabled);
-	vcm.setVoiceInputMode(!proximityEnabled
+	vcm.setVoiceInputMode(m_checkboxBedrockFog.IsChecked()
 		? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
 		: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
+}
+
+void UIScene_SettingsGraphicsMenu::refreshVoiceDeviceCheckboxLabel()
+{
+	const bool usePlaybackDevice = m_checkboxCustomSkinAnim.IsChecked();
+	m_checkboxCustomSkinAnim.setLabel(usePlaybackDevice ? UIString(L"Select Output Device") : UIString(L"Select Input Device"), true, true);
+}
+
+void UIScene_SettingsGraphicsMenu::refreshVoiceDeviceSlider()
+{
+	VoiceChatManager &vcm = VoiceChatManager::getInstance();
+	const bool usePlaybackDevice = m_checkboxCustomSkinAnim.IsChecked();
+
+	vector<wstring> deviceNames;
+	if (usePlaybackDevice)
+	{
+		vcm.getPlaybackDeviceNames(deviceNames, true);
+	}
+	else
+	{
+		vcm.getCaptureDeviceNames(deviceNames, true);
+	}
+
+	wchar_t deviceLabels[MAX_DEVICE_LABELS][256];
+	int deviceCount = 0;
+	BuildDeviceLabels(deviceNames, usePlaybackDevice ? L"Output" : L"Input", deviceLabels, deviceCount);
+
+	int selectedIndex = usePlaybackDevice ? vcm.getSelectedPlaybackMenuIndex() : vcm.getSelectedCaptureMenuIndex();
+	if (selectedIndex < 0) selectedIndex = 0;
+	if (selectedIndex >= deviceCount) selectedIndex = 0;
+
+	m_sliderInterfaceOpacity.setAllPossibleLabels(deviceCount, deviceLabels);
+	m_sliderInterfaceOpacity.init(deviceLabels[selectedIndex], eControl_InterfaceOpacity, 0, deviceCount - 1, selectedIndex);
 }

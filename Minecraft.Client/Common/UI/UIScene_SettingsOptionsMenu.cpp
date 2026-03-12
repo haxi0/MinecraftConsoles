@@ -69,8 +69,9 @@ void UIScene_SettingsOptionsMenu::setupVoiceChatMenu()
 	m_bMashUpWorldsUnhideOption = false;
 
 	const bool proximityEnabled = vcm.isProximityEnabled();
+	const bool voiceActivationEnabled = vcm.getVoiceInputMode() == VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION;
 	m_checkboxViewBob.init(UIString(L"Proximity"), eControl_ViewBob, proximityEnabled);
-	m_checkboxShowHints.init(UIString(L"Voice Activate"), eControl_ShowHints, !proximityEnabled);
+	m_checkboxShowHints.init(UIString(L"Voice Activation"), eControl_ShowHints, voiceActivationEnabled);
 
 	removeControl(&m_checkboxShowTooltips, true);
 	removeControl(&m_checkboxInGameGamertags, true);
@@ -247,6 +248,8 @@ void UIScene_SettingsOptionsMenu::setVoiceDifficultyLabel()
 
 void UIScene_SettingsOptionsMenu::enforceVoiceModeSwitch(int preferredControl)
 {
+	(void)preferredControl;
+
 	if (!m_bVoiceChatMode)
 	{
 		return;
@@ -255,18 +258,9 @@ void UIScene_SettingsOptionsMenu::enforceVoiceModeSwitch(int preferredControl)
 	bool proximity = m_checkboxViewBob.IsChecked();
 	bool voiceActivate = m_checkboxShowHints.IsChecked();
 
-	if (proximity == voiceActivate)
+	if (voiceActivate && !proximity)
 	{
-		if (preferredControl == eControl_ShowHints)
-		{
-			proximity = false;
-			voiceActivate = true;
-		}
-		else
-		{
-			proximity = true;
-			voiceActivate = false;
-		}
+		proximity = true;
 	}
 
 	m_checkboxViewBob.setChecked(proximity);
@@ -403,20 +397,12 @@ void UIScene_SettingsOptionsMenu::handlePress(F64 controlId, F64 childId)
 	case eControl_ViewBob:
 		if (m_bVoiceChatMode)
 		{
-			m_checkboxViewBob.setChecked(true);
-			m_checkboxShowHints.setChecked(false);
-			enforceVoiceModeSwitch(eControl_ViewBob);
-			setGameSettings();
 			break;
 		}
 		break;
 	case eControl_ShowHints:
 		if (m_bVoiceChatMode)
 		{
-			m_checkboxViewBob.setChecked(false);
-			m_checkboxShowHints.setChecked(true);
-			enforceVoiceModeSwitch(eControl_ShowHints);
-			setGameSettings();
 			break;
 		}
 		break;
@@ -446,13 +432,11 @@ void UIScene_SettingsOptionsMenu::handleCheckboxToggled(F64 controlId, bool sele
 	{
 	case eControl_ViewBob:
 		m_checkboxViewBob.setChecked(selected);
-		m_checkboxShowHints.setChecked(!selected);
 		enforceVoiceModeSwitch(eControl_ViewBob);
 		setGameSettings();
 		break;
 	case eControl_ShowHints:
 		m_checkboxShowHints.setChecked(selected);
-		m_checkboxViewBob.setChecked(!selected);
 		enforceVoiceModeSwitch(eControl_ShowHints);
 		setGameSettings();
 		break;
@@ -534,7 +518,7 @@ void UIScene_SettingsOptionsMenu::setGameSettings()
 		VoiceChatManager &vcm = VoiceChatManager::getInstance();
 		const bool proximityEnabled = m_checkboxViewBob.IsChecked();
 		vcm.setProximityEnabled(proximityEnabled);
-		vcm.setVoiceInputMode(!proximityEnabled
+		vcm.setVoiceInputMode(m_checkboxShowHints.IsChecked()
 			? VoiceChatManager::VOICE_INPUT_VOICE_ACTIVATION
 			: VoiceChatManager::VOICE_INPUT_PUSH_TO_TALK);
 		return;

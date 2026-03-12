@@ -34,7 +34,14 @@ public:
 	void setListenerPosition(double x, double y, double z);
 
 	// Push-to-talk control
-	void setPushToTalk(bool active) { m_isPushToTalkActive = active; }
+	void setPushToTalk(bool active)
+	{
+		m_isPushToTalkActive = active;
+		if (!active)
+		{
+			m_pushToTalkHoldFrames = 0;
+		}
+	}
 	bool isPushToTalkActive() const { return m_isPushToTalkActive; }
 
 	// Voice input mode controls
@@ -43,7 +50,7 @@ public:
 	void toggleVoiceInputMode();
 
 	// Proximity chat controls
-	void setProximityEnabled(bool enabled) { m_proximityEnabled = enabled; }
+	void setProximityEnabled(bool enabled);
 	bool isProximityEnabled() const { return m_proximityEnabled; }
 	void toggleProximityEnabled();
 
@@ -64,6 +71,8 @@ public:
 	int getMicVolumePercent() const { return m_micVolumePercent; }
 	void setVoiceChatVolumePercent(int percent);
 	int getVoiceChatVolumePercent() const { return m_voiceChatVolumePercent; }
+	void setVoiceActivationGainPercent(int percent);
+	int getVoiceActivationGainPercent() const { return m_voiceActivationGainPercent; }
 
 	bool isInitialized() const { return m_initialized; }
 
@@ -92,7 +101,6 @@ private:
 	bool m_isPushToTalkActive;
 	VoiceInputMode m_voiceInputMode;
 	bool m_proximityEnabled;
-	int m_voiceThreshold;
 	std::vector<std::wstring> m_captureDevices;
 	std::vector<std::wstring> m_playbackDevices;
 	int m_selectedCaptureDevice;
@@ -100,6 +108,11 @@ private:
 	unsigned short m_localSequence;
 	int m_micVolumePercent;
 	int m_voiceChatVolumePercent;
+	int m_voiceActivationGainPercent;
+	int m_voiceActivationHoldFrames;
+	int m_pushToTalkHoldFrames;
+	float m_captureFilterLastInput;
+	float m_captureFilterLastOutput;
 
 	// Capture buffer (ring buffer for PCM data captured from mic)
 	static const int CAPTURE_BUFFER_SIZE = 96000; // 2 seconds at 48kHz mono
