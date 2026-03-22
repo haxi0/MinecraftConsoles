@@ -121,7 +121,6 @@ static WINDOWPLACEMENT g_wpPrev = { sizeof(g_wpPrev) };
 struct Win64LaunchOptions
 {
 	int screenMode;
-	bool serverMode;
 	bool fullscreen;
 };
 
@@ -207,13 +206,9 @@ static Win64LaunchOptions ParseLaunchOptions()
 {
 	Win64LaunchOptions options = {};
 	options.screenMode = 0;
-	options.serverMode = false;
 
 	g_Win64MultiplayerJoin = false;
 	g_Win64MultiplayerPort = WIN64_NET_DEFAULT_PORT;
-	g_Win64DedicatedServer = false;
-	g_Win64DedicatedServerPort = WIN64_NET_DEFAULT_PORT;
-	g_Win64DedicatedServerBindIP[0] = 0;
 
 	int argc = 0;
 	LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -228,17 +223,6 @@ static Win64LaunchOptions ParseLaunchOptions()
 
 	for (int i = 1; i < argc; ++i)
 	{
-		if (_wcsicmp(argv[i], L"-server") == 0)
-		{
-			options.serverMode = true;
-			break;
-		}
-	}
-
-	g_Win64DedicatedServer = options.serverMode;
-
-	for (int i = 1; i < argc; ++i)
-	{
 		if (_wcsicmp(argv[i], L"-name") == 0 && (i + 1) < argc)
 		{
 			CopyWideArgToAnsi(argv[++i], g_Win64Username, sizeof(g_Win64Username));
@@ -247,15 +231,8 @@ static Win64LaunchOptions ParseLaunchOptions()
 		{
 			char ipBuf[256];
 			CopyWideArgToAnsi(argv[++i], ipBuf, sizeof(ipBuf));
-			if (options.serverMode)
-			{
-				strncpy_s(g_Win64DedicatedServerBindIP, sizeof(g_Win64DedicatedServerBindIP), ipBuf, _TRUNCATE);
-			}
-			else
-			{
-				strncpy_s(g_Win64MultiplayerIP, sizeof(g_Win64MultiplayerIP), ipBuf, _TRUNCATE);
-				g_Win64MultiplayerJoin = true;
-			}
+			strncpy_s(g_Win64MultiplayerIP, sizeof(g_Win64MultiplayerIP), ipBuf, _TRUNCATE);
+			g_Win64MultiplayerJoin = true;
 		}
 		else if (_wcsicmp(argv[i], L"-port") == 0 && (i + 1) < argc)
 		{
@@ -263,10 +240,7 @@ static Win64LaunchOptions ParseLaunchOptions()
 			const long port = wcstol(argv[++i], &endPtr, 10);
 			if (endPtr != argv[i] && *endPtr == 0 && port > 0 && port <= 65535)
 			{
-				if (options.serverMode)
-					g_Win64DedicatedServerPort = static_cast<int>(port);
-				else
-					g_Win64MultiplayerPort = static_cast<int>(port);
+				g_Win64MultiplayerPort = static_cast<int>(port);
 			}
 		}
 		else if (_wcsicmp(argv[i], L"-fullscreen") == 0)
@@ -275,36 +249,6 @@ static Win64LaunchOptions ParseLaunchOptions()
 
 	LocalFree(argv);
 	return options;
-}
-
-static BOOL WINAPI HeadlessServerCtrlHandler(DWORD ctrlType)
-{
-	switch (ctrlType)
-	{
-	case CTRL_C_EVENT:
-	case CTRL_BREAK_EVENT:
-	case CTRL_CLOSE_EVENT:
-	case CTRL_SHUTDOWN_EVENT:
-		app.m_bShutdown = true;
-		MinecraftServer::HaltServer();
-		return TRUE;
-	default:
-		return FALSE;
-	}
-}
-
-static void SetupHeadlessServerConsole()
-{
-	if (AllocConsole())
-	{
-		FILE* stream = nullptr;
-		freopen_s(&stream, "CONIN$", "r", stdin);
-		freopen_s(&stream, "CONOUT$", "w", stdout);
-		freopen_s(&stream, "CONOUT$", "w", stderr);
-		SetConsoleTitleA("Minecraft Server");
-	}
-
-	SetConsoleCtrlHandler(HeadlessServerCtrlHandler, TRUE);
 }
 
 void DefineActions(void)
@@ -1353,161 +1297,6 @@ static Minecraft* InitialiseMinecraftRuntime()
 	return pMinecraft;
 }
 
-static int HeadlessServerConsoleThreadProc(void* lpParameter)
-{
-	UNREFERENCED_PARAMETER(lpParameter);
-
-	std::string line;
-	while (!app.m_bShutdown)
-	{
-		if (!std::getline(std::cin, line))
-		{
-			if (std::cin.eof())
-			{
-				break;
-			}
-
-			std::cin.clear();
-			Sleep(50);
-			continue;
-		}
-
-		wstring command = trimString(convStringToWstring(line));
-		if (command.empty())
-			continue;
-
-		MinecraftServer* server = MinecraftServer::getInstance();
-		if (server != nullptr)
-		{
-			server->handleConsoleInput(command, server);
-		}
-	}
-
-	return 0;
-}
-
-static int RunHeadlessServer()
-{
-	SetupHeadlessServerConsole();
-
-	Settings serverSettings(new File(L"server.properties"));
-	const wstring configuredBindIp = serverSettings.getString(L"server-ip", L"");
-
-	const char* bindIp = "*";
-	if (g_Win64DedicatedServerBindIP[0] != 0)
-	{
-		bindIp = g_Win64DedicatedServerBindIP;
-	}
-	else if (!configuredBindIp.empty())
-	{
-		bindIp = wstringtochararray(configuredBindIp);
-	}
-
-	const int port = g_Win64DedicatedServerPort > 0 ? g_Win64DedicatedServerPort : serverSettings.getInt(L"server-port", WIN64_NET_DEFAULT_PORT);
-
-	printf("Starting headless server on %s:%d\n", bindIp, port);
-	fflush(stdout);
-
-	const Minecraft* pMinecraft = InitialiseMinecraftRuntime();
-	if (pMinecraft == nullptr)
-	{
-		fprintf(stderr, "Failed to initialise the Minecraft runtime.\n");
-		return 1;
-	}
-
-	app.SetGameHostOption(eGameHostOption_Difficulty, serverSettings.getInt(L"difficulty", 1));
-	app.SetGameHostOption(eGameHostOption_Gamertags, 1);
-	app.SetGameHostOption(eGameHostOption_GameType, serverSettings.getInt(L"gamemode", 0));
-	app.SetGameHostOption(eGameHostOption_LevelType, 0);
-	app.SetGameHostOption(eGameHostOption_Structures, serverSettings.getBoolean(L"generate-structures", true) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_BonusChest, serverSettings.getBoolean(L"bonus-chest", false) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_PvP, serverSettings.getBoolean(L"pvp", true) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_TrustPlayers, serverSettings.getBoolean(L"trust-players", true) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_FireSpreads, serverSettings.getBoolean(L"fire-spreads", true) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_TNT, serverSettings.getBoolean(L"tnt", true) ? 1 : 0);
-	app.SetGameHostOption(eGameHostOption_HostCanFly, 1);
-	app.SetGameHostOption(eGameHostOption_HostCanChangeHunger, 1);
-	app.SetGameHostOption(eGameHostOption_HostCanBeInvisible, 1);
-	app.SetGameHostOption(eGameHostOption_MobGriefing, 1);
-	app.SetGameHostOption(eGameHostOption_KeepInventory, 0);
-	app.SetGameHostOption(eGameHostOption_DoMobSpawning, 1);
-	app.SetGameHostOption(eGameHostOption_DoMobLoot, 1);
-	app.SetGameHostOption(eGameHostOption_DoTileDrops, 1);
-	app.SetGameHostOption(eGameHostOption_NaturalRegeneration, 1);
-	app.SetGameHostOption(eGameHostOption_DoDaylightCycle, 1);
-
-	MinecraftServer::resetFlags();
-	g_NetworkManager.HostGame(0, false, true, MINECRAFT_NET_MAX_PLAYERS, 0);
-
-	if (!WinsockNetLayer::IsActive())
-	{
-		fprintf(stderr, "Failed to bind the server socket on %s:%d.\n", bindIp, port);
-		return 1;
-	}
-
-	g_NetworkManager.FakeLocalPlayerJoined();
-
-	NetworkGameInitData* param = new NetworkGameInitData();
-	param->seed = 0;
-	param->settings = app.GetGameHostOption(eGameHostOption_All);
-
-	g_NetworkManager.ServerStoppedCreate(true);
-	g_NetworkManager.ServerReadyCreate(true);
-
-	C4JThread* thread = new C4JThread(&CGameNetworkManager::ServerThreadProc, param, "Server", 256 * 1024);
-	thread->SetProcessor(CPU_CORE_SERVER);
-	thread->Run();
-
-	g_NetworkManager.ServerReadyWait();
-	g_NetworkManager.ServerReadyDestroy();
-
-	if (MinecraftServer::serverHalted())
-	{
-		fprintf(stderr, "The server halted during startup.\n");
-		g_NetworkManager.LeaveGame(false);
-		return 1;
-	}
-
-	app.SetGameStarted(true);
-	g_NetworkManager.DoWork();
-
-	printf("Server ready on %s:%d\n", bindIp, port);
-	printf("Type 'help' for server commands.\n");
-	fflush(stdout);
-
-	C4JThread* consoleThread = new C4JThread(&HeadlessServerConsoleThreadProc, nullptr, "Server console", 128 * 1024);
-	consoleThread->Run();
-
-	MSG msg = { 0 };
-	while (WM_QUIT != msg.message && !app.m_bShutdown && !MinecraftServer::serverHalted())
-	{
-		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-			continue;
-		}
-
-		app.UpdateTime();
-		ProfileManager.Tick();
-		StorageManager.Tick();
-		RenderManager.Tick();
-		ui.tick();
-		g_NetworkManager.DoWork();
-		app.HandleXuiActions();
-
-		Sleep(10);
-	}
-
-	printf("Stopping server...\n");
-	fflush(stdout);
-
-	app.m_bShutdown = true;
-	MinecraftServer::HaltServer();
-	g_NetworkManager.LeaveGame(false);
-	return 0;
-}
-
 int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 					   _In_opt_ HINSTANCE hPrevInstance,
 					   _In_ LPTSTR    lpCmdLine,
@@ -1569,11 +1358,8 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	const Win64LaunchOptions launchOptions = ParseLaunchOptions();
 	ApplyScreenMode(launchOptions.screenMode);
 
-	// Ensure uid.dat exists from startup in client mode (before any multiplayer/login path).
-	if (!launchOptions.serverMode)
-	{
-		Win64Xuid::ResolvePersistentXuid();
-	}
+	// Ensure uid.dat exists from startup (before any multiplayer/login path).
+	Win64Xuid::ResolvePersistentXuid();
 
 	// If no username, let's fall back
 	if (g_Win64Username[0] == 0)
@@ -1654,7 +1440,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	MyRegisterClass(hInstance);
 
 	// Perform application initialization:
-	if (!InitInstance (hInstance, launchOptions.serverMode ? SW_HIDE : nCmdShow))
+	if (!InitInstance (hInstance, nCmdShow))
 	{
 		return FALSE;
 	}
@@ -1671,13 +1457,6 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	if (LoadFullscreenOption() && !g_isFullscreen || launchOptions.fullscreen)
 	{
 		ToggleFullscreen();
-	}
-
-	if (launchOptions.serverMode)
-	{
-		const int serverResult = RunHeadlessServer();
-		CleanupDevice();
-		return serverResult;
 	}
 
 #if 0
@@ -1989,7 +1768,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		}
 
 		// F1 toggles the HUD
-		if (g_KBMInput.IsKeyPressed(VK_F1))
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_TOGGLE_HUD))
 		{
 			const int primaryPad = ProfileManager.GetPrimaryPad();
 			const unsigned char displayHud = app.GetGameSettings(primaryPad, eGameSetting_DisplayHUD);
@@ -1998,7 +1777,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		}
 
 		// F3 toggles onscreen debug info
-		if (g_KBMInput.IsKeyPressed(VK_F3))
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_DEBUG_INFO))
 		{
 			if (const Minecraft* pMinecraft = Minecraft::GetInstance())
 			{
@@ -2011,7 +1790,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 
 #ifdef _DEBUG_MENUS_ENABLED
         // F6 Open debug console
-        if (g_KBMInput.IsKeyPressed(VK_F6))
+        if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_DEBUG_CONSOLE))
         {
         	static bool s_debugConsole = false;
         	s_debugConsole = !s_debugConsole;
@@ -2019,14 +1798,14 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
         }
 #endif
 
-		// F11 Toggle fullscreen
-		if (g_KBMInput.IsKeyPressed(VK_F11))
+		// toggle fullscreen
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_FULLSCREEN))
 		{
 			ToggleFullscreen();
 		}
 
 		// TAB opens game info menu. - Vvis :3 - Updated by detectiveren
-		if (g_KBMInput.IsKeyPressed(VK_TAB) && !ui.GetMenuDisplayed(0))
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_HOST_SETTINGS) && !ui.GetMenuDisplayed(0))
 		{
 			if (Minecraft* pMinecraft = Minecraft::GetInstance())
 			{
@@ -2038,7 +1817,7 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		}
 
 		// Open chat
-		if (g_KBMInput.IsKeyPressed('T') && app.GetGameStarted() && !ui.GetMenuDisplayed(0) && pMinecraft->screen == NULL)
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_CHAT) && app.GetGameStarted() && !ui.GetMenuDisplayed(0) && pMinecraft->screen == NULL)
 		{
 			g_KBMInput.ClearCharBuffer();
 			pMinecraft->setScreen(new ChatScreen());

@@ -16,7 +16,12 @@ using namespace std;
 
 // 4J Stu - This value should be big enough that we don't get any crashes causes by memory overwrites,
 // however it does seem way too large for what is actually needed. Needs further investigation
+#ifdef MINECRAFT_SERVER_BUILD
+// fixes a crash when 8+ players are present
+#define LEVEL_CHUNKS_TO_UPDATE_MAX (32*32*8)
+#else
 #define LEVEL_CHUNKS_TO_UPDATE_MAX (19*19*8)
+#endif
 
 class Vec3;
 class ChunkSource;
@@ -58,10 +63,10 @@ public:
 
 
 public:
-	static const int MAX_XBOX_BOATS = 40;										// Max number of boats
-	static const int MAX_CONSOLE_MINECARTS = 40;
-	static const int MAX_DISPENSABLE_FIREBALLS = 200;
-	static const int MAX_DISPENSABLE_PROJECTILES = 300;
+	static const int MAX_XBOX_BOATS = 60;										// Max number of boats
+	static const int MAX_CONSOLE_MINECARTS = 60;
+	static const int MAX_DISPENSABLE_FIREBALLS = 300;
+	static const int MAX_DISPENSABLE_PROJECTILES = 400;
 
 	static const int MAX_LEVEL_SIZE = 30000000;
 	static const int maxMovementHeight = 512;	// 4J added

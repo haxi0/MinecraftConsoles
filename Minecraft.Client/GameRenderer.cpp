@@ -359,14 +359,17 @@ void GameRenderer::pick(float a)
 	}
 }
 
+// Toru - wrapping these methods for backwards compatibility,
+// no longer setting m_fov as its use doesn't respect applyEffects param in GameRenderer::getFov
 void GameRenderer::SetFovVal(float fov)
 {
-	m_fov=fov;
+	//m_fov=fov;
+	mc->options->set(Options::Option::FOV, (fov - 70) / 40);
 }
 
 float GameRenderer::GetFovVal()
 {
-	return m_fov;
+	return 70 + mc->options->fov * 40;//m_fov;
 }
 
 void GameRenderer::tickFov()
@@ -390,6 +393,8 @@ float GameRenderer::getFov(float a, bool applyEffects)
 	shared_ptr<LocalPlayer> player = dynamic_pointer_cast<LocalPlayer>(mc->cameraTargetPlayer);
 	int playerIdx = player ? player->GetXboxPad() : 0;
 	float fov = m_fov;//70;
+	if (fov < 1) fov = 1; // Crash fix
+	
 	if (applyEffects)
 	{
 		fov += mc->options->fov * 40;
