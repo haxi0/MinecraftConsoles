@@ -47,7 +47,7 @@ jobs:
       with:
         configurePreset: ${{ env.MATRIX_PLATFORM }}
         buildPreset: ${{ env.MATRIX_PLATFORM }}-release
-        buildPresetAdditionalArgs: "['--target', 'Minecraft.Server']"
+        buildPresetAdditionalArgs: '["--target", "Minecraft.Server"]'
 
     - name: Zip Build
       run: 7z a -r LCEServer${{ matrix.platform }}.zip ./build/${{ env.MATRIX_PLATFORM }}/Minecraft.Server/Release/* "-x!*.ipdb" "-x!*.iobj"
