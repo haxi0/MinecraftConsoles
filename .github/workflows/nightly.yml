@@ -30,6 +30,9 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v6
 
+    - name: Normalize case-colliding wrapper headers
+      run: python .github/scripts/fix_case_wrapper_headers.py
+
     - name: Set platform lowercase
       run: echo "MATRIX_PLATFORM=$('${{ matrix.platform }}'.ToLower())" >> $env:GITHUB_ENV
 
