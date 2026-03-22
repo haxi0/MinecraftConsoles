@@ -36,6 +36,10 @@
 #include "Options.h"
 #include "..\Minecraft.World\VoiceChatPacket.h"
 
+#if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
+#include "..\Minecraft.Server\ServerLogManager.h"
+#endif
+
 Random PlayerConnection::random;
 
 namespace
