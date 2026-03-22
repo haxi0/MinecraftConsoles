@@ -139,8 +139,22 @@ private:
 		int64_t lastReceiveTime; // For cleanup of stale streams
 		unsigned short lastSequence;
 		bool hasSequence;
+		bool primed;
+		int pendingConcealSamples;
+		short lastOutputSample;
 
-		RemoteVoiceStream() : writePos(0), readPos(0), x(0), y(0), z(0), lastReceiveTime(0), lastSequence(0), hasSequence(false)
+		RemoteVoiceStream()
+			: writePos(0)
+			, readPos(0)
+			, x(0)
+			, y(0)
+			, z(0)
+			, lastReceiveTime(0)
+			, lastSequence(0)
+			, hasSequence(false)
+			, primed(false)
+			, pendingConcealSamples(0)
+			, lastOutputSample(0)
 		{
 			memset(buffer, 0, sizeof(buffer));
 		}

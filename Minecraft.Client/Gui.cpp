@@ -34,6 +34,7 @@
 #include "..\Minecraft.World\LevelChunk.h"
 #include "..\Minecraft.World\Biome.h"
 #include <Common/UI/UI.h>
+#include <Common/UI/UISplitScreenHelpers.h>
 
 ResourceLocation Gui::PUMPKIN_BLUR_LOCATION = ResourceLocation(TN__BLUR__MISC_PUMPKINBLUR);
 
@@ -58,7 +59,7 @@ namespace
 
 	static const float VOICE_INDICATOR_ASPECT = 60.0f / 40.0f;
 	static const float VOICE_INDICATOR_HEIGHT = 10.0f;
-	static const float VOICE_INDICATOR_MARGIN = 10.0f;
+	static const float VOICE_INDICATOR_MARGIN = 3.0f;
 
 	BufferedImage *LoadVoiceIndicatorImage(VoiceHudIconState state)
 	{
@@ -359,13 +360,15 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 
 	if (!minecraft->gameMode->isCutScene())
 	{
-		if(bDisplayGui && bTwoPlayerSplitscreen)
-		{
-			// need to apply scale factors depending on the mode
-			glPushMatrix();
-			glScalef(fScaleFactorWidth, fScaleFactorHeight, fScaleFactorWidth);
-		}
-#if RENDER_HUD
+			if(bDisplayGui && bTwoPlayerSplitscreen)
+			{
+				// need to apply scale factors depending on the mode
+				glPushMatrix();
+				glScalef(fScaleFactorWidth, fScaleFactorHeight, fScaleFactorWidth);
+#if !RENDER_HUD
+			}
+#endif
+		#if RENDER_HUD
 		/////////////////////////////////////////////////////////////////////////////////////
 		// Display the quick select background, the quick select selection, and the crosshair
 		/////////////////////////////////////////////////////////////////////////////////////
@@ -863,53 +866,7 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 					glDisable(GL_RESCALE_NORMAL);
 				}
 			}
-			if (bDisplayGui)
-			{
-			VoiceChatManager &vcm = VoiceChatManager::getInstance();
-			VoiceHudIconState iconState = VOICE_HUD_ICON_NOT_SPEAKING;
-			if (vcm.isLocalMuted())
-			{
-				iconState = VOICE_HUD_ICON_MUTED;
-			}
-			else if (minecraft->player != nullptr && vcm.isEntitySpeaking(minecraft->player->entityId))
-			{
-				iconState = VOICE_HUD_ICON_SPEAKING;
-			}
-
-			const int voiceTextureId = GetVoiceIndicatorTextureId(minecraft->textures, iconState);
-			if (voiceTextureId >= 0)
-			{
-				const float iconHeight = VOICE_INDICATOR_HEIGHT;
-				const float iconWidth = iconHeight * VOICE_INDICATOR_ASPECT;
-				float iconX = static_cast<float>(iSafezoneXHalf) + VOICE_INDICATOR_MARGIN;
-				float iconY = static_cast<float>(iSafezoneTopYHalf) + VOICE_INDICATOR_MARGIN;
-#ifdef __PSVITA__
-				// Vita has no safe zones, so align directly from the screen edge.
-				iconX = VOICE_INDICATOR_MARGIN;
-				iconY = VOICE_INDICATOR_MARGIN;
-#endif
-
-				glDisable(GL_DEPTH_TEST);
-				glDepthMask(false);
-				glEnable(GL_BLEND);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				glColor4f(1, 1, 1, 1);
-				minecraft->textures->bind(voiceTextureId);
-
-				Tesselator *t = Tesselator::getInstance();
-				t->begin();
-				t->vertexUV(iconX, iconY + iconHeight, -90.0f, 0.0f, 1.0f);
-				t->vertexUV(iconX + iconWidth, iconY + iconHeight, -90.0f, 1.0f, 1.0f);
-				t->vertexUV(iconX + iconWidth, iconY, -90.0f, 1.0f, 0.0f);
-				t->vertexUV(iconX, iconY, -90.0f, 0.0f, 0.0f);
-				t->end();
-
-				glDepthMask(true);
-				glEnable(GL_DEPTH_TEST);
-			}
-		}
-
-	#if RENDER_HUD
+		#if RENDER_HUD
 		// Moved so the opacity blend is applied to it
 		if (bDisplayGui && minecraft->gameMode->hasExperience() && minecraft->player->experienceLevel > 0)
 	{
@@ -1334,9 +1291,96 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 	MemSect(0);
 #endif
 
+	if (bDisplayGui)
+	{
+		VoiceChatManager &vcm = VoiceChatManager::getInstance();
+		VoiceHudIconState iconState = VOICE_HUD_ICON_NOT_SPEAKING;
+		if (vcm.isLocalMuted())
+		{
+			iconState = VOICE_HUD_ICON_MUTED;
+		}
+		else if (minecraft->player != nullptr && vcm.isEntitySpeaking(minecraft->player->entityId))
+		{
+			iconState = VOICE_HUD_ICON_SPEAKING;
+		}
+
+		const int voiceTextureId = GetVoiceIndicatorTextureId(minecraft->textures, iconState);
+		if (voiceTextureId >= 0)
+		{
+			const float iconHeightUnits = VOICE_INDICATOR_HEIGHT;
+			const float iconMarginUnits = VOICE_INDICATOR_MARGIN;
+
+			// Use real backbuffer dimensions (updated on resize) and the active split-screen
+			// tile to derive the physical viewport this HUD pass is rendered into.
+			extern int g_rScreenWidth;
+			extern int g_rScreenHeight;
+			F32 vpOriginX = 0.0f;
+			F32 vpOriginY = 0.0f;
+			F32 viewportWidthPhys = static_cast<F32>(g_rScreenWidth);
+			F32 viewportHeightPhys = static_cast<F32>(g_rScreenHeight);
+			const C4JRender::eViewportType vpType = static_cast<C4JRender::eViewportType>(minecraft->player->m_iScreenSection);
+			GetViewportRect(static_cast<F32>(g_rScreenWidth), static_cast<F32>(g_rScreenHeight), vpType,
+				vpOriginX, vpOriginY, viewportWidthPhys, viewportHeightPhys);
+
+			// Convert GUI units to physical pixels for this viewport tile, then draw in a
+			// pixel-space ortho pass so the texture ratio stays constant across resolutions.
+			const float logicalWidth = static_cast<float>(screenWidth);
+			const float logicalHeight = static_cast<float>(screenHeight);
+			float xPixelsPerGuiUnit = 1.0f;
+			float yPixelsPerGuiUnit = 1.0f;
+			if (viewportWidthPhys > 0.0f && viewportHeightPhys > 0.0f && logicalWidth > 0.0f && logicalHeight > 0.0f)
+			{
+				xPixelsPerGuiUnit = viewportWidthPhys / logicalWidth;
+				yPixelsPerGuiUnit = viewportHeightPhys / logicalHeight;
+			}
+
+			const float iconHeightPx = iconHeightUnits * yPixelsPerGuiUnit;
+			const float iconWidthPx = iconHeightPx * VOICE_INDICATOR_ASPECT;
+			const float iconMarginXPx = iconMarginUnits * xPixelsPerGuiUnit;
+			const float iconMarginYPx = iconMarginUnits * yPixelsPerGuiUnit;
+			const float iconXPx = iconMarginXPx;
+			const float iconYPx = viewportHeightPhys - iconHeightPx - iconMarginYPx;
+
+			glDisable(GL_DEPTH_TEST);
+			glDepthMask(false);
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glColor4f(1, 1, 1, 1);
+			minecraft->textures->bind(voiceTextureId);
+
+			glMatrixMode(GL_PROJECTION);
+			glPushMatrix();
+			glLoadIdentity();
+			glOrtho(0, viewportWidthPhys, viewportHeightPhys, 0, 1000, 3000);
+			glMatrixMode(GL_MODELVIEW);
+			glPushMatrix();
+			glLoadIdentity();
+			glTranslatef(0.0f, 0.0f, -2000.0f);
+
+			Tesselator *t = Tesselator::getInstance();
+			t->begin();
+			t->vertexUV(iconXPx, iconYPx + iconHeightPx, -90.0f, 0.0f, 1.0f);
+			t->vertexUV(iconXPx + iconWidthPx, iconYPx + iconHeightPx, -90.0f, 1.0f, 1.0f);
+			t->vertexUV(iconXPx + iconWidthPx, iconYPx, -90.0f, 1.0f, 0.0f);
+			t->vertexUV(iconXPx, iconYPx, -90.0f, 0.0f, 0.0f);
+			t->end();
+
+			glPopMatrix();
+			glMatrixMode(GL_PROJECTION);
+			glPopMatrix();
+			glMatrixMode(GL_MODELVIEW);
+
+			glDepthMask(true);
+			glEnable(GL_DEPTH_TEST);
+		}
+	}
+
 	glColor4f(1, 1, 1, 1);
     glDisable(GL_BLEND);
 	glEnable(GL_ALPHA_TEST);
+}
+
+// Keep braces balanced when HUD sections are compiled out.
 }
 
 // Moved to the xui base scene

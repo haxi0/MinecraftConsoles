@@ -11,6 +11,11 @@ set(MINECRAFT_SERVER_SOURCES
   ${SOURCES_COMMON}
 )
 
+if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(FILTER MINECRAFT_SERVER_SOURCES EXCLUDE REGEX "iob_shim\\.asm$")
+  list(APPEND MINECRAFT_SERVER_SOURCES "${CMAKE_SOURCE_DIR}/Minecraft.Client/iob_shim_cross.cpp")
+endif()
+
 add_executable(Minecraft.Server ${MINECRAFT_SERVER_SOURCES})
 
 target_include_directories(Minecraft.Server PRIVATE
@@ -39,7 +44,7 @@ target_link_libraries(Minecraft.Server PRIVATE
   Minecraft.World
   d3d11
   d3dcompiler
-  XInput9_1_0
+  xinput9_1_0
   wsock32
   legacy_stdio_definitions
   $<$<CONFIG:Debug>: # Debug 4J libraries

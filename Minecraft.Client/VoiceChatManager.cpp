@@ -21,11 +21,16 @@ namespace
 	static const int VOICE_ACTIVATION_OPEN_RMS = 220;
 	static const int VOICE_ACTIVATION_CLOSE_PEAK = 600;
 	static const int VOICE_ACTIVATION_CLOSE_RMS = 160;
-	static const int VOICE_ACTIVATION_HOLD_FRAMES = 10;
+	static const int VOICE_ACTIVATION_HOLD_FRAMES = 16;
 	static const int PUSH_TO_TALK_GATE_PEAK = 450;
 	static const int PUSH_TO_TALK_GATE_RMS = 120;
 	static const int PUSH_TO_TALK_HOLD_FRAMES = 4;
 	static const float CAPTURE_HIGHPASS_ALPHA = 0.995f;
+	static const int JITTER_BUFFER_TARGET_PACKETS = 14; // 140ms target playout delay
+	static const int JITTER_BUFFER_MIN_PACKETS = 10;    // 100ms to restart after starvation
+	static const int JITTER_BUFFER_MAX_PACKETS = 30;    // cap added latency at 300ms
+	static const int MAX_CONCEAL_PACKETS = 12;          // up to 120ms concealment per gap
+	static const float CONCEAL_DECAY = 0.992f;
 
 	static void RefreshDeviceLists(
 		std::vector<std::wstring> &playbackDevices,
@@ -68,6 +73,11 @@ namespace
 		if (sample > 32767) return 32767;
 		if (sample < -32768) return -32768;
 		return static_cast<short>(sample);
+	}
+
+	static int RingBufferedSamples(int writePos, int readPos, int capacity)
+	{
+		return (writePos - readPos + capacity) % capacity;
 	}
 
 	struct VoiceFrameMetrics
@@ -154,8 +164,14 @@ void VoiceChatManager::onCaptureAudio(ma_device *pDevice, void *pOutput, const v
 	EnterCriticalSection(&mgr->m_captureLock);
 	for (unsigned int i = 0; i < frameCount; i++)
 	{
+		const int nextWritePos = (mgr->m_captureWritePos + 1) % CAPTURE_BUFFER_SIZE;
+		if (nextWritePos == mgr->m_captureReadPos)
+		{
+			// Capture overrun: drop oldest sample to preserve continuity.
+			mgr->m_captureReadPos = (mgr->m_captureReadPos + 1) % CAPTURE_BUFFER_SIZE;
+		}
 		mgr->m_captureBuffer[mgr->m_captureWritePos] = input[i];
-		mgr->m_captureWritePos = (mgr->m_captureWritePos + 1) % CAPTURE_BUFFER_SIZE;
+		mgr->m_captureWritePos = nextWritePos;
 	}
 	LeaveCriticalSection(&mgr->m_captureLock);
 }
@@ -201,20 +217,67 @@ void VoiceChatManager::onPlaybackAudio(ma_device *pDevice, void *pOutput, const 
 		volume *= (float)mgr->m_voiceChatVolumePercent / 100.0f;
 		if (volume <= 0.001f) continue;
 
-		// Mix this stream's audio into the output
+		const int jitterTargetSamples = JITTER_BUFFER_TARGET_PACKETS * FRAMES_PER_PACKET;
+		const int jitterRestartSamples = JITTER_BUFFER_MIN_PACKETS * FRAMES_PER_PACKET;
+		const int jitterMaxSamples = JITTER_BUFFER_MAX_PACKETS * FRAMES_PER_PACKET;
+
+		int bufferedSamples = RingBufferedSamples(stream.writePos, stream.readPos, RemoteVoiceStream::BUFFER_SIZE);
+
+		// Keep latency bounded if packets burst in faster than real-time.
+		if (bufferedSamples > jitterMaxSamples)
+		{
+			int drop = bufferedSamples - jitterMaxSamples;
+			stream.readPos = (stream.readPos + drop) % RemoteVoiceStream::BUFFER_SIZE;
+			bufferedSamples -= drop;
+		}
+
+		// Prime before playout to absorb network/tick jitter.
+		if (!stream.primed)
+		{
+			if (bufferedSamples < jitterTargetSamples)
+			{
+				continue;
+			}
+			stream.primed = true;
+		}
+
+		// Mix this stream's audio into the output.
 		for (unsigned int i = 0; i < frameCount; i++)
 		{
-			if (stream.readPos != stream.writePos)
+			bufferedSamples = RingBufferedSamples(stream.writePos, stream.readPos, RemoteVoiceStream::BUFFER_SIZE);
+			short sourceSample = 0;
+
+			if (bufferedSamples > 0)
 			{
-				int sample = (int)(stream.buffer[stream.readPos] * volume);
-				int mixed = output[i] + sample;
-
-				// Clamp to prevent clipping
-				if (mixed > 32767) mixed = 32767;
-				if (mixed < -32768) mixed = -32768;
-
-				output[i] = (short)mixed;
+				sourceSample = stream.buffer[stream.readPos];
 				stream.readPos = (stream.readPos + 1) % RemoteVoiceStream::BUFFER_SIZE;
+				stream.lastOutputSample = sourceSample;
+				stream.pendingConcealSamples = 0;
+			}
+			else if (stream.pendingConcealSamples > 0)
+			{
+				const int faded = static_cast<int>(stream.lastOutputSample * CONCEAL_DECAY);
+				stream.lastOutputSample = ClampSampleToShort(faded);
+				sourceSample = stream.lastOutputSample;
+				--stream.pendingConcealSamples;
+			}
+			else
+			{
+				// Starved: re-prime with a smaller threshold before resuming to avoid tremble.
+				stream.primed = false;
+				const int refillBuffered = RingBufferedSamples(stream.writePos, stream.readPos, RemoteVoiceStream::BUFFER_SIZE);
+				if (refillBuffered < jitterRestartSamples)
+				{
+					break;
+				}
+				stream.primed = true;
+			}
+
+			if (sourceSample != 0)
+			{
+				int sample = static_cast<int>(sourceSample * volume);
+				int mixed = output[i] + sample;
+				output[i] = ClampSampleToShort(mixed);
 			}
 		}
 	}
@@ -266,6 +329,8 @@ void VoiceChatManager::init()
 	captureConfig.capture.channels = CHANNELS;
 	captureConfig.capture.pDeviceID = GetSelectedDeviceId(m_selectedCaptureDevice, pCaptureInfos, captureCount);
 	captureConfig.sampleRate = SAMPLE_RATE;
+	captureConfig.periodSizeInFrames = FRAMES_PER_PACKET;
+	captureConfig.periods = 3;
 	captureConfig.dataCallback = onCaptureAudio;
 	captureConfig.pUserData = this;
 
@@ -290,6 +355,8 @@ void VoiceChatManager::init()
 	playbackConfig.playback.channels = CHANNELS;
 	playbackConfig.playback.pDeviceID = GetSelectedDeviceId(m_selectedPlaybackDevice, pPlaybackInfos, playbackCount);
 	playbackConfig.sampleRate = SAMPLE_RATE;
+	playbackConfig.periodSizeInFrames = FRAMES_PER_PACKET;
+	playbackConfig.periods = 3;
 	playbackConfig.dataCallback = onPlaybackAudio;
 	playbackConfig.pUserData = this;
 
@@ -599,7 +666,8 @@ void VoiceChatManager::tick(Minecraft *minecraft)
 		bool shouldSend = false;
 		if (m_voiceInputMode == VOICE_INPUT_PUSH_TO_TALK)
 		{
-			shouldSend = m_isPushToTalkActive && (pushToTalkSpeechDetected || m_pushToTalkHoldFrames > 0);
+			// PTT should be stable while held; avoid extra per-frame speech gating cuts.
+			shouldSend = m_isPushToTalkActive;
 		}
 		else
 		{
@@ -689,16 +757,16 @@ void VoiceChatManager::receiveVoiceData(int playerId, unsigned short sequence, d
 			return; // stale packet
 		}
 
-		// Packet loss concealment: for small gaps, insert silence frames.
+		// Track short packet gaps; playback callback will synthesize a smooth decay.
 		const int missingPackets = static_cast<int>(delta) - 1;
 		if (missingPackets > 0)
 		{
-			const int concealPackets = (missingPackets > 3) ? 3 : missingPackets;
-			const int concealSamples = concealPackets * FRAMES_PER_PACKET;
-			for (int i = 0; i < concealSamples; ++i)
+			const int concealPackets = (missingPackets > MAX_CONCEAL_PACKETS) ? MAX_CONCEAL_PACKETS : missingPackets;
+			stream.pendingConcealSamples += concealPackets * FRAMES_PER_PACKET;
+			const int maxConcealSamples = MAX_CONCEAL_PACKETS * FRAMES_PER_PACKET;
+			if (stream.pendingConcealSamples > maxConcealSamples)
 			{
-				stream.buffer[stream.writePos] = 0;
-				stream.writePos = (stream.writePos + 1) % RemoteVoiceStream::BUFFER_SIZE;
+				stream.pendingConcealSamples = maxConcealSamples;
 			}
 		}
 	}
@@ -708,8 +776,23 @@ void VoiceChatManager::receiveVoiceData(int playerId, unsigned short sequence, d
 
 	for (int i = 0; i < sampleCount; i++)
 	{
+		const int nextWritePos = (stream.writePos + 1) % RemoteVoiceStream::BUFFER_SIZE;
+		if (nextWritePos == stream.readPos)
+		{
+			// Playback overrun: drop oldest sample to keep stream moving.
+			stream.readPos = (stream.readPos + 1) % RemoteVoiceStream::BUFFER_SIZE;
+		}
 		stream.buffer[stream.writePos] = samples[i];
-		stream.writePos = (stream.writePos + 1) % RemoteVoiceStream::BUFFER_SIZE;
+		stream.writePos = nextWritePos;
+	}
+
+	// Keep queue depth bounded to avoid growing latency after network bursts.
+	const int jitterMaxSamples = JITTER_BUFFER_MAX_PACKETS * FRAMES_PER_PACKET;
+	int bufferedSamples = RingBufferedSamples(stream.writePos, stream.readPos, RemoteVoiceStream::BUFFER_SIZE);
+	if (bufferedSamples > jitterMaxSamples)
+	{
+		const int drop = bufferedSamples - jitterMaxSamples;
+		stream.readPos = (stream.readPos + drop) % RemoteVoiceStream::BUFFER_SIZE;
 	}
 
 	LeaveCriticalSection(&m_playbackLock);

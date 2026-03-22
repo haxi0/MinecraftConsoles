@@ -426,6 +426,8 @@ set(_MINECRAFT_WORLD_COMMON_NET_MINECRAFT_NETWORK_PACKET
   "${CMAKE_CURRENT_SOURCE_DIR}/UpdateProgressPacket.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/UseItemPacket.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/UseItemPacket.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/VoiceChatPacket.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/VoiceChatPacket.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/XZPacket.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/XZPacket.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/net.minecraft.network.packet.h"

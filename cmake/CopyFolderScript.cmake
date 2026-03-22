@@ -56,6 +56,9 @@ elseif(CMAKE_HOST_UNIX)
     list(APPEND rsync_args "--exclude=${pattern}")
   endforeach()
 
+  # rsync does not create intermediate destination parents for nested paths.
+  file(MAKE_DIRECTORY "${COPY_DEST}")
+
   # Trailing slashes ensure rsync copies contents, not the directory itself
   execute_process(
     COMMAND rsync ${rsync_args} "${COPY_SOURCE}/" "${COPY_DEST}/"

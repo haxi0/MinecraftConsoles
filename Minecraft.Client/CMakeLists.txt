@@ -23,6 +23,11 @@ set(MINECRAFT_CLIENT_SOURCES
   ${SOURCES_COMMON}
 )
 
+if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(FILTER MINECRAFT_CLIENT_SOURCES EXCLUDE REGEX "iob_shim\\.asm$")
+  list(APPEND MINECRAFT_CLIENT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/iob_shim_cross.cpp")
+endif()
+
 add_executable(Minecraft.Client ${MINECRAFT_CLIENT_SOURCES})
 
 # Only define executable on windows
@@ -53,7 +58,7 @@ target_link_libraries(Minecraft.Client PRIVATE
   Minecraft.World
   d3d11
   d3dcompiler
-  XInput9_1_0
+  xinput9_1_0
   wsock32
   legacy_stdio_definitions
   $<$<CONFIG:Debug>: # Debug 4J libraries
@@ -86,6 +91,13 @@ set(ASSET_FOLDER_PAIRS
   "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_NAME}Media"  "${PLATFORM_NAME}Media"
 )
 setup_asset_folder_copy(Minecraft.Client "${ASSET_FOLDER_PAIRS}")
+
+set(ASSET_FILE_PAIRS
+  "${CMAKE_CURRENT_SOURCE_DIR}/Common/Media/Graphics/InGameInfo/voiceNotSpeaking.png" "Common/Media/Graphics/InGameInfo"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Common/Media/Graphics/InGameInfo/voiceSpeaking.png"    "Common/Media/Graphics/InGameInfo"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Common/Media/Graphics/InGameInfo/voiceMuted.png"       "Common/Media/Graphics/InGameInfo"
+)
+setup_asset_file_copy(Minecraft.Client "${ASSET_FILE_PAIRS}")
 
 # Copy redist files
 add_copyredist_target(Minecraft.Client)

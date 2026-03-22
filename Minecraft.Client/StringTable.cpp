@@ -1,4 +1,4 @@
-#include "StdAfx.h"
+#include "stdafx.h"
 #include "StringTable.h"
 
 StringTable::StringTable(void)
@@ -179,7 +179,6 @@ LPCWSTR StringTable::getString(int id)
 	else
 		return L"";
 }
-
 
 
 

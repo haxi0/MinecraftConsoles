@@ -38,6 +38,15 @@
 
 Random PlayerConnection::random;
 
+namespace
+{
+	// Server-authoritative movement/interact tolerances (squared distances).
+	constexpr double kMoveBaseAllowanceSq = 100.0;
+	constexpr double kMoveVelocityAllowanceScale = 1.0;
+	constexpr double kInteractReachSq = 36.0;
+	constexpr double kInteractBlockedReachSq = 9.0;
+}
+
 
 PlayerConnection::PlayerConnection(MinecraftServer *server, Connection *connection, shared_ptr<ServerPlayer> player)
 {

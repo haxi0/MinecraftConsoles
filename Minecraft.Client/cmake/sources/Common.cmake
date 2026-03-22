@@ -16,6 +16,8 @@ set(_MINECRAFT_CLIENT_COMMON_COMMON
   "${BASE_DIR}/Potion_Macros.h"
   "${BASE_DIR}/ConsoleGameMode.cpp"
   "${BASE_DIR}/ConsoleGameMode.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/VoiceChatManager.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/VoiceChatManager.h"
   "${BASE_DIR}/Console_Awards_enum.h"
   "${BASE_DIR}/Console_Debug_enum.h"
   "${BASE_DIR}/Console_Utils.cpp"

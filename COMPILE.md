@@ -71,8 +71,54 @@ cd .\build\windows64\Minecraft.Server\Debug
 .\Minecraft.Server.exe -port 25565 -bind 0.0.0.0 -name DedicatedServer
 ```
 
+## CMake (Linux -> Windows x64 cross-compile, experimental)
+
+This path targets `Windows64` binaries from Linux using LLVM tools.
+
+Prerequisites:
+- `cmake`, `ninja`
+- `clang-cl`, `lld-link`, `llvm-rc`, `llvm-ml`
+- Windows SDK + MSVC CRT files (recommended via `xwin`)
+
+Install `xwin` and download/splat SDK files:
+
+```bash
+cargo install xwin --locked
+sudo mkdir -p /opt/xwin
+xwin --accept-license splat --output /opt/xwin
+```
+
+Set the SDK root:
+
+```bash
+export MINECRAFTCONSOLES_WINSDK_ROOT=/opt/xwin
+```
+
+Configure:
+
+```bash
+cmake --preset windows64-linux-cross
+```
+
+Build Debug client:
+
+```bash
+cmake --build --preset windows64-linux-cross-debug --target Minecraft.Client
+```
+
+Build Release client:
+
+```bash
+cmake --build --preset windows64-linux-cross-release --target Minecraft.Client
+```
+
+Build dedicated server (Debug):
+
+```bash
+cmake --build --preset windows64-linux-cross-debug --target Minecraft.Server
+```
+
 Notes:
-- The CMake build is Windows-only and x64-only.
-- Contributors on macOS or Linux need a Windows machine or VM to build the project. Running the game via Wine is separate from having a supported build environment.
+- This is experimental and cross-compiles Windows binaries only; running them on Linux still requires Wine or a Windows machine.
 - Post-build asset copy is automatic for `Minecraft.Client` in CMake (Debug and Release variants).
 - The game relies on relative paths (for example `Common\Media\...`), so launching from the output directory is required.

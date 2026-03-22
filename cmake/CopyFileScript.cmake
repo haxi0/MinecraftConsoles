@@ -38,6 +38,9 @@ if(CMAKE_HOST_WIN32)
   endforeach()
 
 elseif(CMAKE_HOST_UNIX)
+  # rsync does not create intermediate destination parents for nested paths.
+  file(MAKE_DIRECTORY "${COPY_DEST}")
+
   execute_process(
     COMMAND rsync -av ${COPY_SOURCE} "${COPY_DEST}/"
     RESULT_VARIABLE rs

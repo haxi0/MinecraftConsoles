@@ -18,6 +18,12 @@
       }
     },
     {
+      "name": "windows64-linux-cross",
+      "displayName": "Windows64 (Linux cross)",
+      "inherits": "windows64",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-clangcl-windows64.cmake"
+    },
+    {
       "name": "durango",
       "displayName": "Durango",
       "inherits": "base",
@@ -75,6 +81,8 @@
   "buildPresets": [
     { "name": "windows64-debug",   "displayName": "Windows64 - Debug",   "configurePreset": "windows64", "configuration": "Debug" },
     { "name": "windows64-release", "displayName": "Windows64 - Release", "configurePreset": "windows64", "configuration": "Release" },
+    { "name": "windows64-linux-cross-debug",   "displayName": "Windows64 (Linux cross) - Debug",   "configurePreset": "windows64-linux-cross", "configuration": "Debug" },
+    { "name": "windows64-linux-cross-release", "displayName": "Windows64 (Linux cross) - Release", "configurePreset": "windows64-linux-cross", "configuration": "Release" },
 
     { "name": "durango-debug",     "displayName": "Durango - Debug",     "configurePreset": "durango",   "configuration": "Debug" },
     { "name": "durango-release",   "displayName": "Durango - Release",   "configurePreset": "durango",   "configuration": "Release" },

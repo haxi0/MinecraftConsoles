@@ -198,6 +198,14 @@ void UIComponent_Tooltips::tick()
 
 void UIComponent_Tooltips::render(S32 width, S32 height, C4JRender::eViewportType viewport)
 {
+#ifdef _WINDOWS64
+	// On Windows, only display gamepad tooltip glyphs while controller input mode is active.
+	if (g_KBMInput.IsKBMActive())
+	{
+		return;
+	}
+#endif
+
 	if((ProfileManager.GetLockedProfile()!=-1) && !ui.GetMenuDisplayed(m_iPad) && (app.GetGameSettings(m_iPad,eGameSetting_Tooltips)==0 || app.GetGameSettings(m_iPad,eGameSetting_DisplayHUD)==0))
 	{
 		return;
