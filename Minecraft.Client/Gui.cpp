@@ -14,8 +14,6 @@
 #include "Tesselator.h"
 #include "MultiPlayerLevel.h"
 #include "..\Minecraft.World\JavaMath.h"
-#include "..\Minecraft.World\File.h"
-#include "..\Minecraft.World\InputOutputStream.h"
 #include "..\Minecraft.World\net.minecraft.world.entity.player.h"
 #include "..\Minecraft.World\net.minecraft.world.effect.h"
 #include "..\Minecraft.World\net.minecraft.world.food.h"
@@ -23,6 +21,8 @@
 #include "..\Minecraft.World\net.minecraft.world.level.h"
 #include "..\Minecraft.World\LevelData.h"
 #include "..\Minecraft.World\net.minecraft.world.level.tile.h"
+#include "..\Minecraft.World\File.h"
+#include "..\Minecraft.World\InputOutputStream.h"
 #include "..\Minecraft.World\System.h"
 #include "..\Minecraft.World\Language.h"
 #include "EntityRenderDispatcher.h"
@@ -56,10 +56,11 @@ namespace
 		VOICE_HUD_ICON_MUTED = 2
 	};
 
-	static const int VOICE_HUD_ICON_WIDTH = 24;
-	static const int VOICE_HUD_ICON_HEIGHT = 16;
+	static const float VOICE_INDICATOR_ASPECT = 60.0f / 40.0f;
+	static const float VOICE_INDICATOR_HEIGHT = 10.0f;
+	static const float VOICE_INDICATOR_MARGIN = 10.0f;
 
-	BufferedImage *LoadVoiceHudIconImage(VoiceHudIconState state)
+	BufferedImage *LoadVoiceIndicatorImage(VoiceHudIconState state)
 	{
 		const wchar_t *filePath = L"Common\\Media\\Graphics\\InGameInfo\\voiceNotSpeaking.png";
 		if (state == VOICE_HUD_ICON_SPEAKING)
@@ -114,7 +115,7 @@ namespace
 		return image;
 	}
 
-	int GetVoiceHudIconTextureId(Textures *textures, VoiceHudIconState state)
+	int GetVoiceIndicatorTextureId(Textures *textures, VoiceHudIconState state)
 	{
 		static int s_voiceHudTextureIds[3] = { -1, -1, -1 };
 		const int stateIndex = static_cast<int>(state);
@@ -129,7 +130,7 @@ namespace
 			return textureId;
 		}
 
-		BufferedImage *image = LoadVoiceHudIconImage(state);
+		BufferedImage *image = LoadVoiceIndicatorImage(state);
 		if (image == nullptr)
 		{
 			return -1;
@@ -137,17 +138,6 @@ namespace
 
 		textureId = textures->getTexture(image, C4JRender::TEXTURE_FORMAT_RxGyBzAw, false);
 		return textureId;
-	}
-
-	void DrawVoiceHudIcon(int x, int y)
-	{
-		Tesselator *t = Tesselator::getInstance();
-		t->begin();
-		t->vertexUV(static_cast<float>(x), static_cast<float>(y + VOICE_HUD_ICON_HEIGHT), 0.0f, 0.0f, 1.0f);
-		t->vertexUV(static_cast<float>(x + VOICE_HUD_ICON_WIDTH), static_cast<float>(y + VOICE_HUD_ICON_HEIGHT), 0.0f, 1.0f, 1.0f);
-		t->vertexUV(static_cast<float>(x + VOICE_HUD_ICON_WIDTH), static_cast<float>(y), 0.0f, 1.0f, 0.0f);
-		t->vertexUV(static_cast<float>(x), static_cast<float>(y), 0.0f, 0.0f, 0.0f);
-		t->end();
 	}
 }
 
@@ -863,14 +853,13 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 				minecraft->player->xRot = oxr;
 				minecraft->player->onFire = ofire;
 				minecraft->player->setSharedFlag(Entity::FLAG_ONFIRE,ofireflag);
-				glPopMatrix();
-				Lighting::turnOff();
-				glDisable(GL_RESCALE_NORMAL);
+					glPopMatrix();
+					Lighting::turnOff();
+					glDisable(GL_RESCALE_NORMAL);
+				}
 			}
-		}
-
-		if (bDisplayGui)
-		{
+			if (bDisplayGui)
+			{
 			VoiceChatManager &vcm = VoiceChatManager::getInstance();
 			VoiceHudIconState iconState = VOICE_HUD_ICON_NOT_SPEAKING;
 			if (vcm.isLocalMuted())
@@ -882,34 +871,42 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 				iconState = VOICE_HUD_ICON_SPEAKING;
 			}
 
-			const int iconTextureId = GetVoiceHudIconTextureId(minecraft->textures, iconState);
-			if (iconTextureId >= 0)
+			const int voiceTextureId = GetVoiceIndicatorTextureId(minecraft->textures, iconState);
+			if (voiceTextureId >= 0)
 			{
+				const float iconHeight = VOICE_INDICATOR_HEIGHT;
+				const float iconWidth = iconHeight * VOICE_INDICATOR_ASPECT;
+				float iconX = static_cast<float>(iSafezoneXHalf) + VOICE_INDICATOR_MARGIN;
+				float iconY = static_cast<float>(iSafezoneTopYHalf) + VOICE_INDICATOR_MARGIN;
+#ifdef __PSVITA__
+				// Vita has no safe zones, so align directly from the screen edge.
+				iconX = VOICE_INDICATOR_MARGIN;
+				iconY = VOICE_INDICATOR_MARGIN;
+#endif
+
+				glDisable(GL_DEPTH_TEST);
+				glDepthMask(false);
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-				minecraft->textures->bind(iconTextureId);
+				glColor4f(1, 1, 1, 1);
+				minecraft->textures->bind(voiceTextureId);
 
-				int x;
-				int y;
-				if (bTwoPlayerSplitscreen)
-				{
-					x = iWidthOffset + screenWidth / 2 - VOICE_HUD_ICON_WIDTH / 2;
-					y = iHeightOffset + screenHeight - iSafezoneYHalf - iTooltipsYOffset - VOICE_HUD_ICON_HEIGHT - 24;
-				}
-				else
-				{
-					x = screenWidth / 2 - VOICE_HUD_ICON_WIDTH / 2;
-					y = screenHeight - iSafezoneYHalf - iTooltipsYOffset - VOICE_HUD_ICON_HEIGHT - 24;
-				}
-				DrawVoiceHudIcon(x, y);
+				Tesselator *t = Tesselator::getInstance();
+				t->begin();
+				t->vertexUV(iconX, iconY + iconHeight, -90.0f, 0.0f, 1.0f);
+				t->vertexUV(iconX + iconWidth, iconY + iconHeight, -90.0f, 1.0f, 1.0f);
+				t->vertexUV(iconX + iconWidth, iconY, -90.0f, 1.0f, 0.0f);
+				t->vertexUV(iconX, iconY, -90.0f, 0.0f, 0.0f);
+				t->end();
+
+				glDepthMask(true);
+				glEnable(GL_DEPTH_TEST);
 			}
 		}
-	}
 
-#if RENDER_HUD
-	// Moved so the opacity blend is applied to it
-	if (bDisplayGui && minecraft->gameMode->hasExperience() && minecraft->player->experienceLevel > 0)
+	#if RENDER_HUD
+		// Moved so the opacity blend is applied to it
+		if (bDisplayGui && minecraft->gameMode->hasExperience() && minecraft->player->experienceLevel > 0)
 	{
 		if (true)
 		{
