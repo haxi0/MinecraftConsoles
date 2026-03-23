@@ -98,6 +98,216 @@ bool Mouse::isButtonDown(int button)
 }
 #endif
 
+#if defined(MINECRAFT_SERVER_BUILD)
+#include "VoiceChatManager.h"
+
+VoiceChatManager::VoiceChatManager()
+	: m_initialized(false)
+	, m_audioContext(NULL)
+	, m_captureDevice(NULL)
+	, m_playbackDevice(NULL)
+	, m_isPushToTalkActive(false)
+	, m_voiceInputMode(VOICE_INPUT_PUSH_TO_TALK)
+	, m_proximityEnabled(true)
+	, m_selectedCaptureDevice(-1)
+	, m_selectedPlaybackDevice(-1)
+	, m_localSequence(0)
+	, m_micVolumePercent(100)
+	, m_voiceChatVolumePercent(100)
+	, m_voiceActivationGainPercent(100)
+	, m_voiceActivationHoldFrames(0)
+	, m_pushToTalkHoldFrames(0)
+	, m_captureFilterLastInput(0.0f)
+	, m_captureFilterLastOutput(0.0f)
+	, m_localMuted(false)
+	, m_captureWritePos(0)
+	, m_captureReadPos(0)
+	, m_listenerX(0.0)
+	, m_listenerY(0.0)
+	, m_listenerZ(0.0)
+{
+}
+
+VoiceChatManager::~VoiceChatManager()
+{
+}
+
+VoiceChatManager &VoiceChatManager::getInstance()
+{
+	static VoiceChatManager instance;
+	return instance;
+}
+
+void VoiceChatManager::init()
+{
+	m_initialized = true;
+}
+
+void VoiceChatManager::shutdown()
+{
+	m_initialized = false;
+}
+
+void VoiceChatManager::tick(Minecraft *)
+{
+	tickSpeakingState();
+}
+
+void VoiceChatManager::receiveVoiceData(int playerId, unsigned short, double, double, double, const unsigned char *, int)
+{
+	markSpeaking(playerId);
+}
+
+void VoiceChatManager::setListenerPosition(double x, double y, double z)
+{
+	m_listenerX = x;
+	m_listenerY = y;
+	m_listenerZ = z;
+}
+
+void VoiceChatManager::setVoiceInputMode(VoiceInputMode mode)
+{
+	m_voiceInputMode = mode;
+}
+
+void VoiceChatManager::toggleVoiceInputMode()
+{
+	m_voiceInputMode = (m_voiceInputMode == VOICE_INPUT_PUSH_TO_TALK) ? VOICE_INPUT_VOICE_ACTIVATION : VOICE_INPUT_PUSH_TO_TALK;
+}
+
+void VoiceChatManager::setProximityEnabled(bool enabled)
+{
+	m_proximityEnabled = enabled;
+}
+
+void VoiceChatManager::toggleProximityEnabled()
+{
+	m_proximityEnabled = !m_proximityEnabled;
+}
+
+bool VoiceChatManager::cycleCaptureDevice(int)
+{
+	return false;
+}
+
+bool VoiceChatManager::cyclePlaybackDevice(int)
+{
+	return false;
+}
+
+wstring VoiceChatManager::getSelectedCaptureDeviceName() const
+{
+	return L"Default";
+}
+
+wstring VoiceChatManager::getSelectedPlaybackDeviceName() const
+{
+	return L"Default";
+}
+
+void VoiceChatManager::getCaptureDeviceNames(vector<wstring> &outNames, bool includeDefault) const
+{
+	outNames.clear();
+	if (includeDefault)
+	{
+		outNames.push_back(L"Default");
+	}
+}
+
+void VoiceChatManager::getPlaybackDeviceNames(vector<wstring> &outNames, bool includeDefault) const
+{
+	outNames.clear();
+	if (includeDefault)
+	{
+		outNames.push_back(L"Default");
+	}
+}
+
+int VoiceChatManager::getSelectedCaptureMenuIndex() const
+{
+	return 0;
+}
+
+int VoiceChatManager::getSelectedPlaybackMenuIndex() const
+{
+	return 0;
+}
+
+bool VoiceChatManager::selectCaptureMenuIndex(int)
+{
+	return false;
+}
+
+bool VoiceChatManager::selectPlaybackMenuIndex(int)
+{
+	return false;
+}
+
+void VoiceChatManager::setMicVolumePercent(int percent)
+{
+	m_micVolumePercent = percent;
+}
+
+void VoiceChatManager::setVoiceChatVolumePercent(int percent)
+{
+	m_voiceChatVolumePercent = percent;
+}
+
+void VoiceChatManager::setVoiceActivationGainPercent(int percent)
+{
+	m_voiceActivationGainPercent = percent;
+}
+
+void VoiceChatManager::setLocalMuted(bool muted)
+{
+	m_localMuted = muted;
+}
+
+void VoiceChatManager::toggleLocalMuted()
+{
+	m_localMuted = !m_localMuted;
+}
+
+void VoiceChatManager::markSpeaking(int entityId)
+{
+	m_speakingEntities[entityId] = 8;
+}
+
+bool VoiceChatManager::isEntitySpeaking(int entityId)
+{
+	auto it = m_speakingEntities.find(entityId);
+	return it != m_speakingEntities.end() && it->second > 0;
+}
+
+void VoiceChatManager::clearSpeaking(int entityId)
+{
+	m_speakingEntities.erase(entityId);
+}
+
+void VoiceChatManager::tickSpeakingState()
+{
+	for (auto it = m_speakingEntities.begin(); it != m_speakingEntities.end(); )
+	{
+		if (--(it->second) <= 0)
+		{
+			it = m_speakingEntities.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+}
+
+void VoiceChatManager::onCaptureAudio(ma_device *, void *, const void *, unsigned int)
+{
+}
+
+void VoiceChatManager::onPlaybackAudio(ma_device *, void *, const void *, unsigned int)
+{
+}
+#endif
+
 void glReadPixels(int,int, int, int, int, int, ByteBuffer *)
 {
 }
